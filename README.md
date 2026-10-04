@@ -62,6 +62,25 @@ What's covered:
 | Phone | The model stays visible beside the panel; the wiring board fits without scrolling |
 | Camera | A drag turns the model; the view can't flip under or over it; zoom stays in range |
 | Tools | Press-and-hold opens the tool wheel centred on the touch |
+| Budget | The finished kit stays under 950 draw calls and 400k triangles on a phone |
+
+### The draw-call budget
+
+The finished kit currently costs about **785 draw calls** over ~700 visible
+meshes on a phone-sized screen, at roughly 209k triangles. The triangles are
+not a problem — mobile GPUs handle far more. The draw calls are, and the
+finished model is what players look at longest.
+
+Two things keep it high: the scene uses ~158 separate materials, and almost
+nothing is instanced (two instanced meshes in the whole scene). If the décor
+list and the room view land as more individual meshes, this grows in step with
+them. Batching static placed geometry, sharing materials, and instancing
+repeats (screws, bolts, identical parts) are the levers, and they're worth
+reaching for before the App Store build, not after.
+
+The budget test fails above 950. If you add a lot of décor and it trips, that
+is the test working — batch the new geometry, or raise the ceiling deliberately
+with a note about why.
 
 Add a case to `tests/mew.spec.js` whenever you fix something a player hit — a
 test that doesn't fail when you put the bug back isn't protecting anything.
