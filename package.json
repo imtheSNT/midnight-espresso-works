@@ -1,0 +1,21 @@
+{
+  "name": "midnight-espresso-works",
+  "version": "4.1.0",
+  "private": true,
+  "description": "Midnight Espresso Works — a 3D model-kit builder game. The game itself is the single self-contained index.html; this package exists only to run the tests.",
+  "scripts": {
+    "test": "playwright test",
+    "test:gpu": "MEW_GPU=1 playwright test",
+    "test:headed": "playwright test --headed",
+    "test:report": "playwright show-report"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/imtheSNT/midnight-espresso-works.git"
+  },
+  "author": "imtheSNT",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@playwright/test": "^1.56.0"
+  }
+}

@@ -21,3 +21,9 @@ build/
 # Logs
 npm-debug.log
 yarn-error.log
+
+# Test output
+test-results/
+playwright-report/
+blob-report/
+.playwright/
