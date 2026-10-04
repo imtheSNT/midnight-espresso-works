@@ -136,6 +136,35 @@ async function buildWholeKit(page) {
 }
 
 /**
+ * Finish the kit and enter showcase mode — the state the café door unlocks behind.
+ * Skips the reveal cinematic so tests don't wait on it.
+ */
+async function enterShowcase(page) {
+  await page.evaluate(() => {
+    const m = window.__mew;
+    m.UI.enterShowcaseNow();
+    for (let i = 0; i < 180; i++) m.tick(1 / 60);
+  });
+}
+
+/** Every part id currently drawing something, as the player would see it. */
+async function visiblePartIds(page) {
+  return page.evaluate(() => {
+    const m = window.__mew;
+    return Object.values(m.RT).filter(rt => {
+      let any = false;
+      rt.g.traverse(o => {
+        if (!o.isMesh || any) return;
+        let v = o.visible;
+        o.traverseAncestors(a => { if (a.visible === false) v = false; });
+        if (v) any = true;
+      });
+      return any;
+    }).map(rt => rt.def.id).sort();
+  });
+}
+
+/**
  * Cost of one scene pass. Measures the scene render itself rather than the
  * post-processing quad, which is what renderer.info reports after the composer.
  */
@@ -182,5 +211,5 @@ async function advance(page, seconds = 1.5) {
 module.exports = {
   KIT_URL, PHONE_LANDSCAPE, openKit, openBoxAndLayOut,
   pieceScreenPos, nextPieceId, emptyStagePoint, suspendToolWheel, advance,
-  buildWholeKit, sceneCost,
+  buildWholeKit, sceneCost, enterShowcase, visiblePartIds,
 };

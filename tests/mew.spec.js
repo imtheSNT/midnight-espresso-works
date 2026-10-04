@@ -3,6 +3,7 @@ const { test, expect } = require('@playwright/test');
 const {
   PHONE_LANDSCAPE, openKit, openBoxAndLayOut, pieceScreenPos, nextPieceId,
   emptyStagePoint, suspendToolWheel, advance, buildWholeKit, sceneCost,
+  enterShowcase, visiblePartIds,
 } = require('./helpers');
 
 /* ------------------------------------------------------------------ *
@@ -362,5 +363,94 @@ test.describe('rendering budget', () => {
     console.log('  pieces on the table:', JSON.stringify(cost));
     // nothing is assembled yet, so the frame should be far lighter than the finished kit
     expect(cost.drawCalls, 'the opening frame got expensive').toBeLessThanOrEqual(250);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Inside the café — the room view is where the interior finally reads
+ * at a size a player can see, so it needs to survive refactors.
+ * Entering hides the front of the building; leaving must put every
+ * one of those pieces back. That is the same class of bug as the
+ * vanishing base, so it gets the same treatment.
+ * ------------------------------------------------------------------ */
+test.describe('inside the café', () => {
+  test('stays shut until the kit is finished', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    const beforeFinish = await page.evaluate(() => {
+      window.__mew.enterRoom();
+      return window.__mew.ROOM.on;
+    });
+    expect(beforeFinish, 'the café opened before the kit was built').toBe(false);
+  });
+
+  test('opens once the kit is finished, on every seat', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+    await buildWholeKit(page);
+    await enterShowcase(page);
+
+    const entered = await page.evaluate(() => {
+      const m = window.__mew;
+      m.enterRoom();
+      for (let i = 0; i < 180; i++) m.tick(1 / 60);
+      return { on: m.ROOM.on, view: m.ROOM.view, seats: Object.keys(m.ROOM_VIEWS) };
+    });
+    expect(entered.on, 'the café would not open on a finished kit').toBe(true);
+    expect(entered.seats.length, 'expected several seats to choose from').toBeGreaterThanOrEqual(4);
+
+    for (const seat of entered.seats) {
+      const moved = await page.evaluate((k) => {
+        const m = window.__mew;
+        const from = { ...m.view, target: m.view.target.clone() };
+        m.roomView(k);
+        for (let i = 0; i < 200; i++) m.tick(1 / 60);
+        return {
+          seat: m.ROOM.view,
+          shifted: m.view.target.distanceTo(from.target) > 0.01
+            || Math.abs(m.view.theta - from.theta) > 0.01
+            || Math.abs(m.view.phi - from.phi) > 0.01,
+        };
+      }, seat);
+      expect(moved.seat, `roomView('${seat}') did not take`).toBe(seat);
+    }
+  });
+
+  test('opens up the front of the building, then puts it back', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+    await buildWholeKit(page);
+    await enterShowcase(page);
+
+    const before = await visiblePartIds(page);
+    const lensBefore = await page.evaluate(() => window.__mew.camera.fov);
+
+    await page.evaluate(() => {
+      const m = window.__mew;
+      m.enterRoom();
+      for (let i = 0; i < 180; i++) m.tick(1 / 60);
+    });
+
+    const inside = await visiblePartIds(page);
+    const lensInside = await page.evaluate(() => window.__mew.camera.fov);
+
+    const hidden = before.filter(id => !inside.includes(id));
+    expect(hidden.length, 'nothing was opened up to see inside').toBeGreaterThan(0);
+    expect(lensInside, 'the lens should widen inside the room')
+      .toBeGreaterThan(lensBefore);
+
+    await page.evaluate(() => {
+      const m = window.__mew;
+      m.exitRoom(true);
+      for (let i = 0; i < 180; i++) m.tick(1 / 60);
+    });
+
+    const after = await visiblePartIds(page);
+    const lensAfter = await page.evaluate(() => window.__mew.camera.fov);
+    const lost = before.filter(id => !after.includes(id));
+
+    expect(lost, 'pieces stayed hidden after leaving the café').toEqual([]);
+    expect(lensAfter, 'the lens was not restored on the way out').toBeCloseTo(lensBefore, 1);
   });
 });
