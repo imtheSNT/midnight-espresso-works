@@ -2,7 +2,7 @@
 const { test, expect } = require('@playwright/test');
 const {
   PHONE_LANDSCAPE, openKit, openBoxAndLayOut, pieceScreenPos, nextPieceId,
-  emptyStagePoint, suspendToolWheel, advance,
+  emptyStagePoint, suspendToolWheel, advance, buildWholeKit, sceneCost,
 } = require('./helpers');
 
 /* ------------------------------------------------------------------ *
@@ -321,5 +321,46 @@ test.describe('tool wheel', () => {
       .toBeLessThan(28);
     expect(Math.abs(wheel.cy - (y - stage.top)), 'the wheel is not centred on the touch')
       .toBeLessThan(28);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Rendering budget — the finished kit is what players look at longest,
+ * and it's where added decor will show up first. Measured on a phone.
+ * ------------------------------------------------------------------ *
+ * Today, fully built: 786 draw calls over 669 visible meshes, 209k
+ * triangles. Triangles are not the worry; draw calls are. The ceilings
+ * below sit just above today's numbers, so ordinary work passes and a
+ * change that doubles the cost fails loudly instead of quietly shipping.
+ * If you add a lot of decor and this fails, that's the test doing its
+ * job — batch or instance the new geometry, or raise the ceiling on
+ * purpose with a note saying why.
+ */
+test.describe('rendering budget', () => {
+  test.use({ viewport: PHONE_LANDSCAPE, hasTouch: true });
+
+  test('the finished kit stays within its draw-call budget', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+    await buildWholeKit(page);
+
+    const cost = await sceneCost(page);
+    console.log('  fully built on a phone:', JSON.stringify(cost));
+
+    expect(cost.drawCalls, 'draw calls for the finished kit').toBeLessThanOrEqual(950);
+    expect(cost.triangles, 'triangles for the finished kit').toBeLessThanOrEqual(400_000);
+    // a sanity floor: if this collapses, the kit stopped drawing rather than got faster
+    expect(cost.drawCalls, 'the scene barely drew anything — did the build fail?')
+      .toBeGreaterThan(100);
+  });
+
+  test('an unbuilt kit is cheap to draw', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    const cost = await sceneCost(page);
+    console.log('  pieces on the table:', JSON.stringify(cost));
+    // nothing is assembled yet, so the frame should be far lighter than the finished kit
+    expect(cost.drawCalls, 'the opening frame got expensive').toBeLessThanOrEqual(250);
   });
 });

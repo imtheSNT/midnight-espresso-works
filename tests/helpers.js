@@ -118,6 +118,49 @@ async function emptyStagePoint(page) {
 }
 
 /**
+ * Build the whole kit: every piece of every step, plus the wiring board.
+ * Leaves the scene in the state a player stares at longest — everything on screen.
+ */
+async function buildWholeKit(page) {
+  await page.evaluate(() => {
+    const m = window.__mew;
+    const tick = (n) => { for (let i = 0; i < n; i++) m.tick(1 / 60); };
+    for (let s = 0; s < m.STEPS.length; s++) {
+      let id;
+      while ((id = m.strictNext())) { m.finishInstant(id); tick(2); }
+      if (m.STEPS[m.BS.step].wire && !m.BS.wired) m.Wire.finish(true);
+      if (m.BS.step < m.STEPS.length - 1) { m.Build.nextStep(); tick(2); }
+    }
+    tick(60);
+  });
+}
+
+/**
+ * Cost of one scene pass. Measures the scene render itself rather than the
+ * post-processing quad, which is what renderer.info reports after the composer.
+ */
+async function sceneCost(page) {
+  return page.evaluate(() => {
+    const m = window.__mew, r = m.renderer;
+    const prev = r.getRenderTarget();
+    r.setRenderTarget(null);
+    r.info.reset();
+    r.render(m.scene, m.camera);
+    const out = { drawCalls: r.info.render.calls, triangles: r.info.render.triangles };
+    r.setRenderTarget(prev);
+    let visible = 0;
+    m.scene.traverse(o => {
+      if (!o.isMesh) return;
+      let v = o.visible;
+      o.traverseAncestors(p => { if (p.visible === false) v = false; });
+      if (v) visible++;
+    });
+    out.visibleMeshes = visible;
+    return out;
+  });
+}
+
+/**
  * Park the press-and-hold timer for tests that are about the camera.
  * Under software rendering a frame can take longer than ctrl.lpMs, so the hold
  * fires before the first pointermove is even delivered and the tool wheel opens
@@ -139,4 +182,5 @@ async function advance(page, seconds = 1.5) {
 module.exports = {
   KIT_URL, PHONE_LANDSCAPE, openKit, openBoxAndLayOut,
   pieceScreenPos, nextPieceId, emptyStagePoint, suspendToolWheel, advance,
+  buildWholeKit, sceneCost,
 };
