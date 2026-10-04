@@ -47,7 +47,7 @@
   color-scheme:dark;
 }
 *,*::before,*::after{box-sizing:border-box}
-html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px);-webkit-text-size-adjust:100%;text-size-adjust:100%}
 body{height:100%;margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-ui);font-size:16px;line-height:1.4;overflow:hidden;-webkit-tap-highlight-color:transparent;-webkit-font-smoothing:antialiased}
 button,input{font:inherit;color:inherit}
 button{cursor:pointer}
@@ -693,6 +693,52 @@ body.phone-l .cine-skip{bottom:calc(11.5% + 10px)}
 /* the step chip waits until the box is open */
 body.boxing .hud-chip{display:none !important}
 
+/* ===== iOS Safari: panels scroll without double-tap zoom; the camera buttons wait while the box card is up ===== */
+#sheet,.menu,.stage-decor{touch-action:pan-y}
+body.boxing #turn{display:none !important}
+
+.wb-hit{fill:transparent;stroke:none;pointer-events:all}
+/* ===== Wiring board on a phone held sideways: the whole board at full height, the words and the button beside it ===== */
+body.phone-l .modal{place-items:stretch;z-index:45;background:rgba(6,10,18,.72);
+  padding:calc(8px + env(safe-area-inset-top,0px)) calc(8px + env(safe-area-inset-right,0px)) calc(8px + env(safe-area-inset-bottom,0px)) calc(8px + env(safe-area-inset-left,0px))}
+body.phone-l #wire-modal .modal-card{width:100%;height:100%;max-height:none;overflow:hidden;display:grid;grid-template-columns:minmax(0,1fr) min(250px,34%);grid-template-rows:auto minmax(0,1fr) auto;column-gap:18px;padding:12px 16px}
+body.phone-l #wire-modal #wire-svg{grid-column:1;grid-row:1 / span 3;width:auto;height:100%;max-width:100%;min-height:0;justify-self:center;align-self:center}
+body.phone-l #wire-modal h2{grid-column:2;grid-row:1;font-size:20px;line-height:1.15}
+body.phone-l #wire-modal #wire-help{grid-column:2;grid-row:2;margin:8px 0;font-size:13.5px;line-height:1.4;overflow:auto;min-height:0}
+body.phone-l #wire-modal .modal-foot{grid-column:2;grid-row:3;display:flex;flex-direction:column;align-items:stretch;gap:8px}
+body.phone-l #wire-modal .modal-foot .btn{min-height:46px}
+
+/* ===== Instructions panel (phone held sideways) ===== */
+.pbook{display:none}
+body.phone-l .pbook:not([hidden]){display:flex;flex-direction:column;position:absolute;z-index:17;top:calc(8px + env(safe-area-inset-top,0px));bottom:calc(8px + env(safe-area-inset-bottom,0px));
+  right:calc(8px + env(safe-area-inset-right,0px));width:min(340px,44vw);background:#f7f0e2;color:#1f2638;border-radius:18px;box-shadow:0 12px 34px rgba(0,0,0,.3);overflow:hidden}
+body.phone-l.pbook-open header.bar .bar-actions,body.phone-l.pbook-open #turn{display:none}
+body.phone-l.pbook-open .stage-actions{right:calc(var(--offw,0px) + 10px)}
+body.phone-l.pbook-open .stage-hint{max-width:calc(100% - var(--offw,0px) - 34vw - 40px);transform:translateX(calc(var(--offw,0px) / -2))}
+.pb-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:12px 10px 10px 16px;border-bottom:1px solid rgba(31,38,56,.1)}
+.pb-k{margin:2px 0 3px;font:700 12.5px/1 'MEW Nunito',system-ui,sans-serif;color:#b4652f}
+.pb-t{margin:0;font:700 19px/1.15 'MEW Cinzel',Georgia,serif;letter-spacing:.02em}
+.pb-next{margin:6px 0 0;font:600 13.5px/1.3 'MEW Nunito',system-ui,sans-serif;color:#5a6274}
+.pb-next b{color:#8c4a1f;font-weight:800}
+.pb-x{flex:none;display:grid;place-items:center;width:44px;height:44px;border-radius:50%;border:0;background:rgba(31,38,56,.07);color:inherit;cursor:pointer;touch-action:manipulation}
+.pb-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y;padding:12px 16px 16px}
+.pb-steps{margin:0;padding:0;list-style:none;counter-reset:pb;display:grid;gap:10px}
+.pb-steps li{counter-increment:pb;display:grid;grid-template-columns:26px 1fr;gap:10px;font:600 15px/1.38 'MEW Nunito',system-ui,sans-serif}
+.pb-steps li::before{content:counter(pb);display:grid;place-items:center;width:24px;height:24px;margin-top:1px;border-radius:50%;background:#1f2638;color:#f7f0e2;font:800 12.5px/1 'MEW Nunito',system-ui,sans-serif}
+.pb-inst{margin:12px 0 0;padding:9px 11px;border-radius:12px;background:rgba(180,101,47,.12);font:700 14px/1.35 'MEW Nunito',system-ui,sans-serif;color:#8c4a1f}
+.pb-label{display:flex;justify-content:space-between;margin:16px 0 8px;padding-top:12px;border-top:1px solid rgba(31,38,56,.1);font:800 13px/1 'MEW Nunito',system-ui,sans-serif;color:#b4652f}
+.pb-label span{color:#8a7658;font-weight:700}
+.pb-parts{margin:0;padding:0;list-style:none;display:grid;gap:7px}
+.pb-parts li{display:flex;align-items:center;gap:9px;min-height:26px;font:700 14.5px/1.25 'MEW Nunito',system-ui,sans-serif}
+.pb-parts li i{flex:none;width:18px;height:18px;border-radius:50%;border:2px solid #b9a684}
+.pb-parts li.done{color:#9a8a70;font-weight:600}
+.pb-parts li.done i{border-color:#2f7c76;background:#2f7c76 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Cpath d='M4.5 9.3l3 3 6-6.4' fill='none' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/14px no-repeat}
+.pb-parts li.next{color:#8c4a1f}
+.pb-parts li.next i{border-color:#d07a38;box-shadow:0 0 0 3px rgba(208,122,56,.22)}
+.pb-parts li b{margin-left:auto;font-weight:700;font-size:12.5px;color:#8a7658;white-space:nowrap}
+.pb-parts li em{margin-left:auto;padding:3px 8px;border-radius:999px;background:#d07a38;color:#fff;font:800 11.5px/1 'MEW Nunito',system-ui,sans-serif;font-style:normal}
+.pb-parts li b + em{margin-left:6px}
+
 </style>
 </head>
 <body>
@@ -826,6 +872,7 @@ body.boxing .hud-chip{display:none !important}
       <button type="button" class="hd-btn" data-hud="style"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 0 0 0 18c1.1 0 1.6-.8 1.6-1.6 0-.9-.7-1.3-.7-2.2 0-.9.7-1.6 1.6-1.6H17a4 4 0 0 0 4-4C21 6.7 17 3 12 3z"/><circle cx="7.6" cy="11" r="1.2" fill="currentColor"/><circle cx="10.5" cy="7.3" r="1.2" fill="currentColor"/><circle cx="15" cy="7.6" r="1.2" fill="currentColor"/></svg><span>Style</span></button>
       <button type="button" class="hd-btn" data-hud="more"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"/></svg><span>Controls</span></button>
     </div>
+    <div class="pbook" id="pbook" role="dialog" aria-labelledby="pbook-t" hidden></div>
     <div class="coach" id="coach" aria-live="polite" hidden><p class="coach-k" id="coach-k"></p><h3 class="coach-t" id="coach-t"></h3><p class="coach-b" id="coach-b"></p><p class="coach-h" id="coach-h"></p><p class="coach-tip" id="coach-tip" hidden>Tip: press and hold on the model to open the tool wheel.</p></div>
     <div id="cine" class="cine">
       <div class="cine-bar top" aria-hidden="true"></div><div class="cine-bar bot" aria-hidden="true"></div>
@@ -9487,7 +9534,11 @@ function applyTheme() {
 let paletteW = 64;
 function onResize() {
   { const pl = !!(window.matchMedia && matchMedia('(pointer: coarse) and (orientation: landscape) and (max-height: 540px)').matches);
-    if (document.body.classList.contains('phone-l') !== pl) { document.body.classList.toggle('phone-l', pl); if (typeof hudSync === 'function') hudSync(); } }
+    if (document.body.classList.contains('phone-l') !== pl) {
+      if (!onResize.pend) { onResize.pend = true; requestAnimationFrame(() => { onResize.pend = false; document.body.classList.toggle('phone-l', pl); if (typeof hudSync === 'function') hudSync(); onResize(); }); }
+      if (onResize.booted) return;
+    } }
+  onResize.booted = true;
   const r = stageEl.getBoundingClientRect();
   /* while building, the parts bar sits along the bottom: the 3D view ends where the bar begins, so nothing hides under it */
   const sh = document.getElementById('sheet'), barH = document.body.classList.contains('immersive') && sh ? sh.offsetHeight : 0;
@@ -9505,6 +9556,7 @@ function onResize() {
   let cardW = 0;
   if (_bcl.contains('show-float') && !_bcl.contains('scene-only') && !_bcl.contains('cine') && stageW >= 600 && (!_bcl.contains('phone-l') || _bcl.contains('sheet-open'))) { const sh = document.getElementById('sheet'); cardW = sh && sh.offsetWidth ? Math.min(sh.offsetWidth + 26, stageW * 0.5) : 410; }
   else if (_bcl.contains('immersive') && _bcl.contains('decor-open') && stageW >= 560) { const sd = document.getElementById('stage-decor'); cardW = sd && sd.offsetWidth ? Math.min(sd.offsetWidth + 20, stageW * 0.5) : 0; }
+  else if (_bcl.contains('pbook-open') && stageW >= 560) { const pb = document.getElementById('pbook'); cardW = pb && pb.offsetWidth ? Math.min(pb.offsetWidth + 20, stageW * 0.5) : 0; }
   document.body.style.setProperty('--offw', cardW + 'px');
   /* a new screen size snaps; a panel opening or closing (or the film handing back to the controls) eases the scene across */
   VOFF.to = cardW;
@@ -10507,9 +10559,14 @@ function tableClone(id) {
   w.userData.fp = { w: sx, d: sz, h: sy }; w.userData.center = _tc.clone();
   const pk = new T.Mesh(new T.BoxGeometry(sx + 1.6, sy + 2.4, sz + 1.6), PICK_MAT); pk.userData.pid = id; w.add(pk); w.userData.pick = pk;
   w.visible = false; TABLE.g.add(w);
+  const sh = new T.Mesh(new T.PlaneGeometry(1, 1), TABLE_SHADOW_MAT); sh.rotation.x = -HALF_PI; sh.raycast = () => {}; sh.renderOrder = -1; sh.visible = false;
+  sh.userData.noShadow = true; TABLE.g.add(sh); w.userData.shadow = sh;
   return (TABLE.clones[id] = w);
 }
 const PICK_MAT = new T.MeshBasicMaterial({ visible: false });
+/* a soft rectangular contact shadow: solid under the piece, feathering just past its edges */
+const TABLE_SHADOW_MAT = new T.MeshBasicMaterial({ map: canvasTex(128, 128, (g, w, h) => { g.clearRect(0, 0, w, h); g.shadowColor = '#000'; g.shadowBlur = 12; g.fillStyle = '#000'; const r = 9, x = 16, y = 16, ww = w - 32, hh = h - 32; g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + ww, y, x + ww, y + hh, r); g.arcTo(x + ww, y + hh, x, y + hh, r); g.arcTo(x, y + hh, x, y, r); g.arcTo(x, y, x + ww, y, r); g.closePath(); g.fill(); }, { srgb: false }),
+  color: 0x24160c, transparent: true, depthWrite: false, opacity: 0.5, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
 function tableLayout() {
   if (!TABLE.g) {
     TABLE.g = new T.Group(); TABLE.g.userData.bench = true; scene.add(TABLE.g);
@@ -10522,7 +10579,7 @@ function tableLayout() {
     const el = document.createElement('div'); el.className = 'table-proxy'; el.setAttribute('aria-hidden', 'true');
     const holder = document.createElement('div'); holder.className = 'table-proxy-holder'; holder.appendChild(el); document.getElementById('stage').appendChild(holder); TABLE.proxyEl = el;
   }
-  Object.values(TABLE.clones).forEach(w => { if (w) w.visible = false; });
+  Object.values(TABLE.clones).forEach(w => { if (w) { w.visible = false; if (w.userData.shadow) w.userData.shadow.visible = false; } });
   TABLE.shown = []; TABLE.ring.visible = false; TABLE.instShown = []; if (TABLE.inst) Object.values(TABLE.inst).forEach(pk => { pk.visible = false; });
   if (BS.show || BS.boxing || !BS.unboxed || !STEPS[BS.step]) return;
   const ids = STEPS[BS.step].parts.filter(id => RT[id] && !BS.done.has(id) && BS.pending !== id && RT[id].state === 'tray');
@@ -10538,6 +10595,7 @@ function tableLayout() {
     if (x + fw > X1) { x = X0; z += rowD + gap; rowD = 0; }
     if (z + fd > Z1) break;
     w.position.set(x + fw / 2, -0.07 + f.h * sc / 2, z + fd / 2); w.visible = true; w.userData.fw = fw; w.userData.fd = fd;
+    { const sh = w.userData.shadow; if (sh) { sh.position.set(w.position.x, -0.055, w.position.z); sh.scale.set(fw / 0.75 + 0.7, fd / 0.75 + 0.7, 1); sh.visible = true; } }
     x += fw + gap; rowD = Math.max(rowD, fd); TABLE.shown.push(id);
   }
   /* a finished bench assembly is its own handle: touch it on the bench and carry it onto the kit */
@@ -10604,13 +10662,14 @@ function stepView(i = BS.step) {
 /* where a table piece sits, as an offset for the real part (so a dragged piece can glide in from the table) */
 function tableFrom(id, out) {
   const w = TABLE.clones[id]; if (!w || !w.visible) return false;
-  out.copy(w.position).sub(w.userData.center); w.visible = false; if (TABLE.ring) TABLE.ring.visible = false; return true;
+  out.copy(w.position).sub(w.userData.center); w.visible = false; if (w.userData.shadow) w.userData.shadow.visible = false; if (TABLE.ring) TABLE.ring.visible = false; return true;
 }
 /* each step opens with a quick look at its pieces on the table, then moves in to build */
 function stepIntro() {
   tableLayout();
   const sv = stepView();
   bookTurn();
+  if (document.body.classList.contains('pbook-open')) pbookShow(false);
   if (!BS.unboxed || (navigator.webdriver && !window.__mewBox)) { goView(sv, 1.1); coachSoon(1200); return; }
   const step = BS.step, still = () => BS.step === step && BOOK.reading && !BS.show && !BS.pending && !(BS.drag && BS.drag.started);
   bookReading(true);
@@ -11849,10 +11908,12 @@ function carryDrop(d, cancelled) {
   rt.ghost.visible = false;
   if (rt.g.visible) {
     rt.state = 'back';
-    rt.tw = { from: rt.off.clone(), to: offscreenOffset(rt, new T.Vector3()), t: 0, dur: 0.35, ease: t => t * t,
-      next: () => { rt.g.visible = false; rt.state = 'tray'; rt.off.set(0, 0, 0); if (rt.def.install) benchHide(rt.def.install, false); } };
+    /* back to its own spot: the bench for an assembly, the table for a loose piece */
+    const home = rt.def.install ? installStart(rt) : rt.tableFrom ? rt.tableFrom.clone() : offscreenOffset(rt, new T.Vector3());
+    rt.tw = { from: rt.off.clone(), to: home, t: 0, dur: 0.4, ease: easeOutCubic,
+      next: () => { rt.g.visible = false; rt.state = 'tray'; rt.off.set(0, 0, 0); rt.tableFrom = null; if (rt.def.install) benchHide(rt.def.install, false); tableLayout(); updateGhosts(); } };
     if (!cancelled) UI.toast(BS.diff === 'guided' ? 'Drop it on the glowing outline' : 'Not quite. Line it up with its spot');
-  } else { rt.state = 'tray'; if (rt.def.install) benchHide(rt.def.install, false); }
+  } else { rt.state = 'tray'; rt.tableFrom = null; if (rt.def.install) benchHide(rt.def.install, false); tableLayout(); }
   updateGhosts();
 }
 function land(rt) {
@@ -12803,10 +12864,12 @@ const Wire = {
     WIRE_PINS.forEach(p => {
       const [c, r] = WL.pins[p.id], [sc, sr] = WL.socks[p.id];
       const g = mk('g', { class: 'wb-pin', tabindex: 0, role: 'button', 'aria-label': `Lead ${p.id}, goes to the ${p.dest.toLowerCase()}`, 'data-pin': p.id });
+      mk('circle', { cx: WX(c), cy: WY(r), r: 15, class: 'wb-hit' }, g);
       mk('circle', { cx: WX(c), cy: WY(r), r: 8, fill: p.color, class: 'dot' }, g);
       mk('text', { x: gx - 5, y: WY(r), class: 'wb-pint' }, g).textContent = p.id;
       this.pins.set(p.id, g);
       const sg = mk('g', { class: 'wb-sock', tabindex: 0, role: 'button', 'aria-label': `${p.dest} socket, for lead ${p.id}`, 'data-sock': p.id });
+      mk('circle', { cx: WX(sc), cy: WY(sr), r: 19, class: 'wb-hit' }, sg);
       mk('circle', { cx: WX(sc), cy: WY(sr), r: 11, stroke: p.color, class: 'ring' }, sg);
       mk('text', { x: WX(sc), y: WY(sr), class: 'wb-sockid' }, sg).textContent = p.id;
       const ly = WY(sr) + 19, lab = WL.short[p.id], lw = lab.length * 5.1 + 10;
@@ -13215,7 +13278,7 @@ const UI = {
         if (!dh && document.body.classList.contains('decor-open')) { document.body.classList.remove('decor-open'); requestAnimationFrame(() => onResize()); }
       } }
     const sh = $('#stage-hint'); if (sh) { const h = BS.show || BS.boxing ? '' : this.hint(); sh.innerHTML = h; sh.hidden = !h; }
-    hudSync();
+    hudSync(); pbookSync();
     const t2 = sheet.querySelector('.tray');
     if (t2) t2.scrollLeft = sl;
     sheet.scrollTop = st;
@@ -14272,8 +14335,10 @@ function hudInit() {
   if (chip) chip.addEventListener('click', () => {
     Sound.click();
     if (BS.show) { sheetShow(!document.body.classList.contains('sheet-open'), UI.showTab || 'machine'); return; }
-    if (BS.unboxed && !BS.boxing) bookRead();
+    if (BS.unboxed && !BS.boxing) { if (document.body.classList.contains('phone-l')) pbookShow(!document.body.classList.contains('pbook-open')); else bookRead(); }
   });
+  const pb = document.getElementById('pbook');
+  if (pb) pb.addEventListener('click', e => { if (e.target.closest('[data-pb=close]')) { Sound.click(); pbookShow(false); } });
   const dock = document.getElementById('hud-dock');
   if (dock) dock.addEventListener('click', e => {
     const b = e.target.closest('[data-hud]'); if (!b) return;
@@ -14291,7 +14356,8 @@ const COACH = { t: 0, tip: false, shownAt: 0 };
 function coachSoon(ms) { clearTimeout(COACH.t); COACH.t = setTimeout(coachShow, ms); }
 function coachShow() {
   const el = document.getElementById('coach');
-  if (!el || BS.show || BS.boxing || !BS.unboxed || CINE.busy || !STEPS[BS.step] || BOOK.reading) return;
+  const bcl = document.body.classList;
+  if (!el || BS.show || BS.boxing || !BS.unboxed || CINE.busy || !STEPS[BS.step] || BOOK.reading || bcl.contains('pbook-open') || bcl.contains('decor-open') || bcl.contains('sheet-open')) return;
   const st = STEPS[BS.step], txt = h => { const d = document.createElement('div'); d.innerHTML = h; return d.textContent.trim(); };
   document.getElementById('coach-k').textContent = `Step ${BS.step + 1} of ${STEPS.length}`;
   document.getElementById('coach-t').textContent = st.title;
@@ -14309,6 +14375,46 @@ function coachHide() {
   clearTimeout(COACH.hideT); setTimeout(() => { if (!el.classList.contains('show')) el.hidden = true; }, 350);
 }
 window.addEventListener('pointerdown', () => { if (performance.now() - COACH.shownAt > 450) coachHide(); }, true);
+
+
+/* ===== Instructions panel for a phone held sideways =====
+   The 3D booklet's text is too small on a short screen, so the step chip opens the same instructions as crisp text:
+   the numbered steps, then the parts checklist, with the piece the manual wants next picked out. */
+function pbookHTML() {
+  const st = STEPS[BS.step]; if (!st) return '';
+  const real = st.parts.filter(id => !PART_BY_ID[id].install), inN = real.filter(id => BS.done.has(id)).length;
+  const groups = [];
+  real.forEach(id => { const k = tileKey(id), gr = groups.find(x => x.k === k && k[0] !== '#'); if (gr) gr.ids.push(id); else groups.push({ k, ids: [id] }); });
+  const nx = BS.mode !== 'free' ? strictNext() : null;
+  const lines = stepLines(st.text).map(l => `<li>${esc(l)}</li>`).join('');
+  const parts = groups.map(gr => {
+    const d = PART_BY_ID[gr.ids[0]], n = gr.ids.filter(id => BS.done.has(id)).length, done = n === gr.ids.length, isNext = !!nx && gr.ids.includes(nx);
+    return `<li class="${done ? 'done' : ''}${isNext ? ' next' : ''}"><i aria-hidden="true"></i><span>${esc(gr.ids.length > 1 ? tileName(d.name) : d.name)}</span>${gr.ids.length > 1 ? `<b>${n} of ${gr.ids.length}</b>` : ''}${isNext ? '<em>Next</em>' : ''}</li>`;
+  }).join('');
+  const inst = st.parts.find(id => PART_BY_ID[id].install && !BS.done.has(id) && nx === id);
+  const instLine = inst && ASM[PART_BY_ID[inst].install] ? `<p class="pb-inst">Next: install the finished ${esc(ASM[PART_BY_ID[inst].install].name)} from the bench.</p>` : '';
+  const nd = nx && PART_BY_ID[nx] && !PART_BY_ID[nx].install ? PART_BY_ID[nx] : null;
+  return `<div class="pb-head"><div><p class="pb-k">Step ${BS.step + 1} of ${STEPS.length}</p><h2 class="pb-t" id="pbook-t">${esc(st.title)}</h2>${nd ? `<p class="pb-next">Next piece: <b>${esc(nd.name)}</b></p>` : ''}</div>
+  <button class="pb-x" type="button" data-pb="close" aria-label="Close the instructions"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+<div class="pb-body"><ol class="pb-steps">${lines}</ol>${instLine}
+  <p class="pb-label">Parts <span>${inN} of ${real.length} in place</span></p><ul class="pb-parts">${parts}</ul></div>`;
+}
+function pbookShow(on) {
+  const el = document.getElementById('pbook'); if (!el) return;
+  if (on) {
+    if (BOOK.reading) bookRead(false);
+    coachHide(); el.innerHTML = pbookHTML(); el.hidden = false; document.body.classList.add('pbook-open');
+  } else { el.hidden = true; document.body.classList.remove('pbook-open'); }
+  requestAnimationFrame(() => onResize());
+}
+function pbookSync() {
+  const el = document.getElementById('pbook');
+  if (!el || el.hidden) return;
+  if (BS.show || !document.body.classList.contains('phone-l')) { pbookShow(false); return; }
+  const b = el.querySelector('.pb-body'), t = b ? b.scrollTop : 0;
+  el.innerHTML = pbookHTML();
+  const b2 = el.querySelector('.pb-body'); if (b2) b2.scrollTop = t;
+}
 
 /* ---------- boot ---------- */
 function showFatal(msg) {
@@ -14363,6 +14469,7 @@ function boot() {
   setTimeout(() => boxStartup(), 60);
   window.addEventListener('pointerdown', () => { Perf.down++; kick(); cineInput(true); }, true);
   window.addEventListener('wheel', () => cineInput(true), { capture: true, passive: true });
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach(t => document.addEventListener(t, e => e.preventDefault(), { passive: false }));   /* Safari's own pinch-zoom of the page */
   window.addEventListener('keydown', e => cineInput(e.key === 'Escape' || !CINE.busy || e.key === ' ' || e.key === 'Enter'), true);
   window.addEventListener('pointermove', () => { if (!CINE.busy) CINE.lastIn = performance.now(); }, { capture: true, passive: true });
   { const sk = document.getElementById('cine-skip'); if (sk) sk.addEventListener('click', () => cineInput(true)); }
@@ -14419,7 +14526,7 @@ function boot() {
   // handle for automated checks of this test build
   hudInit();
   setTimeout(() => { if (!BS.show && BS.unboxed && !BS.boxing) coachShow(); }, 2200);
-  window.__mew = { strictNext, hudSync, coachShow, sheetShow, VOFF, CINE, IBL, cineReveal, cineTour, cineStop, cineUniforms, postRender, setAmbience, HERO_VIEW, tick: dt => { cineTick(dt); hudTick(dt); updateView(dt); Build.update(dt); envTick(dt); updateSim(dt); UI.update(dt); }, MOTES, STEAM, POST, postLook, toolDriver, get stageW() { return stageW; }, get stageH() { return stageH; }, TABLE, tableDown, stageTap, stepView, DM, MURAL, BOOK, bookRead, UI, TABLE, tableLayout, BOX, boxIntro, boxOpen, boxFinish, toolSwing, TOOLVIS, ENV, envShow, PIECE, Wheel, ctrl, ROOM, ROOM_VIEWS, enterRoom, exitRoom, roomView, GLOWS, LIGHTS3D, FEATURES, CAFE, ASM, benchFocus: () => benchFocus(), STEPS, WL, WX, WY, MECH, OWL, DM, ART_TEX, WHEEL_TOOLS, finishInstant, ctrl, Wheel, CAM, turnBy, get tween() { return viewTween; }, BS, RT, SIM, Build, UI, Wire, view, renderer, camera, scene, layers, goView };
+  window.__mew = { pbookShow, strictNext, hudSync, coachShow, sheetShow, VOFF, CINE, IBL, cineReveal, cineTour, cineStop, cineUniforms, postRender, setAmbience, HERO_VIEW, tick: dt => { cineTick(dt); hudTick(dt); updateView(dt); Build.update(dt); envTick(dt); updateSim(dt); UI.update(dt); }, MOTES, STEAM, POST, postLook, toolDriver, get stageW() { return stageW; }, get stageH() { return stageH; }, TABLE, tableDown, stageTap, stepView, DM, MURAL, BOOK, bookRead, UI, TABLE, tableLayout, BOX, boxIntro, boxOpen, boxFinish, toolSwing, TOOLVIS, ENV, envShow, PIECE, Wheel, ctrl, ROOM, ROOM_VIEWS, enterRoom, exitRoom, roomView, GLOWS, LIGHTS3D, FEATURES, CAFE, ASM, benchFocus: () => benchFocus(), STEPS, WL, WX, WY, MECH, OWL, DM, ART_TEX, WHEEL_TOOLS, finishInstant, ctrl, Wheel, CAM, turnBy, get tween() { return viewTween; }, BS, RT, SIM, Build, UI, Wire, view, renderer, camera, scene, layers, goView };
 }
 
 main();
