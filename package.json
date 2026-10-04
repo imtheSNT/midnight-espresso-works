@@ -16,6 +16,6 @@
   "author": "imtheSNT",
   "license": "UNLICENSED",
   "devDependencies": {
-    "@playwright/test": "^1.56.0"
+    "@playwright/test": "1.56.0"
   }
 }
