@@ -1,5 +1,7 @@
 # Midnight Espresso Works
 
+[![Tests](https://github.com/imtheSNT/midnight-espresso-works/actions/workflows/test.yml/badge.svg)](https://github.com/imtheSNT/midnight-espresso-works/actions/workflows/test.yml)
+
 A beautiful 3D model-kit builder game inspired by Robotime/ROKR kits, featuring a mid-century modern espresso machine with café furniture and décor.
 
 ## About
@@ -51,6 +53,12 @@ machine. That costs time: the full suite takes about thirteen minutes that way.
 `npm run test:gpu` uses the real graphics card instead and is far quicker,
 though results then depend on the machine; `npm run test:headed` lets you watch
 them. For a quick loop, `npx playwright test -g "the tools"` runs one group.
+
+You don't have to remember any of this before pushing: GitHub Actions runs the
+whole suite on every push and pull request, on software rendering too, so a red
+run there means what a red run means locally. The HTML report is attached to
+every run, and traces are attached when something fails — open the trace first,
+it shows what the kit was actually doing.
 
 What's covered:
 
