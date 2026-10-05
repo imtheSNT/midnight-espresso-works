@@ -888,7 +888,8 @@ body.phone-l.pbook-open .stage-hint{max-width:calc(100% - var(--offw,0px) - 34vw
     <p id="wire-help">Drag from each header pin on the controller to the part it powers. You can also tap a pin, then tap its destination.</p>
     <svg id="wire-svg" viewBox="0 0 360 330" role="img" aria-label="Wiring board"></svg>
     <div class="modal-foot">
-      <span id="wire-count">0 of 8 leads</span>
+      <!-- filled by Wire.count() via build(); no lead total is written here -->
+      <span id="wire-count"></span>
       <button class="btn primary" id="wire-done" disabled>Close the board</button>
     </div>
   </div>
@@ -12844,17 +12845,22 @@ const Wire = {
     else this.help('Pick a lead on the controller first.');
   },
   count() {
+    /* The lead total is read off the board, never typed. A ninth pin used to
+       mean editing four separate 8s, and the two in the comparisons below
+       gate the Done button -- missing one would let the step finish early. */
+    const total = Object.keys(WL.pins).length;
     const n = this.conns.size, x = this.crossCount(), c = $('#wire-count');
-    c.textContent = `${n} of 8 leads` + (n ? (x ? ` · ${x} crossed` : ' · tidy') : '');
+    c.textContent = `${n} of ${total} leads` + (n ? (x ? ` · ${x} crossed` : ' · tidy') : '');
     c.classList.toggle('bad', x > 0);
-    $('#wire-done').disabled = !(n === 8 && (BS.diff === 'guided' || x === 0));
+    $('#wire-done').disabled = !(n === total && (BS.diff === 'guided' || x === 0));
     return [n, x];
   },
   status(msg) {
+    const total = Object.keys(WL.pins).length;
     const [n, x] = this.count();
     if (msg) { this.help(msg); return; }
-    if (n === 8) this.help(x ? (BS.diff === 'guided' ? `All leads are in, with ${x} crossed. It works, but a real harness keeps them apart. Redraw one, or close the board.` : 'Untangle the crossed leads before closing the board.') : 'Tidy harness, no crossed wires. Close the board.');
-    else if (n) { const nx = this.nextLead(); this.help(BS.diff === 'guided' ? `Good. Next, lead ${nx} goes to the ${wpin(nx).dest.toLowerCase()}.` : `${8 - n} to go.`); }
+    if (n === total) this.help(x ? (BS.diff === 'guided' ? `All leads are in, with ${x} crossed. It works, but a real harness keeps them apart. Redraw one, or close the board.` : 'Untangle the crossed leads before closing the board.') : 'Tidy harness, no crossed wires. Close the board.');
+    else if (n) { const nx = this.nextLead(); this.help(BS.diff === 'guided' ? `Good. Next, lead ${nx} goes to the ${wpin(nx).dest.toLowerCase()}.` : `${total - n} to go.`); }
   },
   build() {
     const svg = $('#wire-svg'); svg.textContent = '';
