@@ -47,8 +47,10 @@ npm test
 ```
 
 Tests run headless against software rendering so results are the same on every
-machine. `npm run test:gpu` uses the real graphics card instead (faster, but
-machine-dependent), and `npm run test:headed` lets you watch them.
+machine. That costs time: the full suite takes about thirteen minutes that way.
+`npm run test:gpu` uses the real graphics card instead and is far quicker,
+though results then depend on the machine; `npm run test:headed` lets you watch
+them. For a quick loop, `npx playwright test -g "the tools"` runs one group.
 
 What's covered:
 
@@ -66,6 +68,7 @@ What's covered:
 | Café | The door is in plain sight rather than behind a tab; the room stays shut until the kit is done, opens on every seat, and puts the front of the building back on the way out |
 | Long game | All 322 pieces build to the final step; progress survives a reload; the finale plays and can always be skipped |
 | Tools | A piece dropped on its outline seats and raises its screws; steady swirling drives one home; swirling far too fast strips it back to the start |
+| Glue | A stroke along a seam glues the piece end to end; a stroke anywhere else glues nothing |
 
 ### Performance
 
@@ -113,6 +116,24 @@ that piece's group and hides and moves with it. Instancing the same screw
 across several pieces reintroduces exactly the problem batching has: the pieces
 stop being separately addressable. Otherwise, raise the ceiling deliberately
 with a note about why.
+
+### One thing the glue tests turned up
+
+The canvas asks "did you grab a piece off the table?" before it asks "are you
+brushing a seam?". So with the glue brush in hand and the pointer over an
+unglued seam, a loose piece lying on top of that seam wins the press and gets
+picked up instead.
+
+It is not hypothetical. On the first glued piece — the veneer fascia, step one —
+exactly **1 of its 82 on-screen seam points** can start a glue stroke; the other
+81 have a loose piece over them. The tests work around it by hunting for that
+one clear point, which is why `seamStroke` does a raycast per point.
+
+Swapping the two checks in the canvas `pointerdown` handler would fix it, and
+`wantsBrush` already requires the glue tool to be selected and the pointer to be
+on a seam, so the change would only bite when someone is plainly trying to glue.
+It is left alone here because it changes which tool wins a press, which is your
+call rather than a bug fix.
 
 ### Where the detail actually lives
 
