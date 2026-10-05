@@ -232,6 +232,74 @@ async function swirlScrew(page, { turns, msPerStep, handleIndex = 0 }) {
   }, { turns, msPerStep, handleIndex });
 }
 
+/**
+ * Build until the manual asks for a piece that needs gluing, then pick up the
+ * glue brush the way a player does — by clicking the tool, which also frames
+ * the camera on the seam. Returns the piece id.
+ */
+async function toGlueStep(page) {
+  return page.evaluate(() => {
+    const m = window.__mew;
+    const tick = (n) => { for (let i = 0; i < n; i++) m.tick(1 / 60); };
+    let id, guard = 0;
+    while ((id = m.strictNext()) && guard++ < 80) {
+      if (m.RT[id].def.glue) break;
+      m.finishInstant(id); tick(4);
+    }
+    const btn = document.querySelector('.tool[data-tool="glue"]');
+    if (btn) btn.click();            // setTool also frames the seam; BS.tool alone does not
+    tick(200);
+    m.Build.updateOverlays();        // projects the seam points to the screen
+    return id;
+  });
+}
+
+/**
+ * The seam's points, in screen coordinates, rotated to start somewhere no loose
+ * piece is sitting on top. That matters because the canvas checks "did you grab
+ * a piece off the table" before it checks "are you brushing a seam", so a stroke
+ * begun over a loose piece picks the piece up instead of gluing.
+ */
+async function seamStroke(page, pieceId) {
+  return page.evaluate((id) => {
+    const m = window.__mew;
+    m.Build.updateOverlays();
+    const r = m.renderer.domElement.getBoundingClientRect();
+    const picks = m.TABLE.shown
+      .map(i => m.TABLE.clones[i] && m.TABLE.clones[i].userData.pick).filter(Boolean);
+    const rc = new THREE.Raycaster(), v = new THREE.Vector2();
+    const clear = (sx, sy) => {
+      v.set((sx / r.width) * 2 - 1, -(sy / r.height) * 2 + 1);
+      rc.setFromCamera(v, m.camera);
+      return rc.intersectObjects(picks, true).length === 0;
+    };
+    const visible = m.RT[id].seams[0].pts.filter(q => !q.behind);
+    const flags = visible.map(q => clear(q.x, q.y));
+    const startAt = flags.indexOf(true);
+    if (startAt < 0) return { points: null, visible: visible.length, clear: 0 };
+    const order = visible.slice(startAt).concat(visible.slice(0, startAt));
+
+    /* The brush covers the whole segment between two stroke positions, not just
+       its ends, so the stroke only needs enough stops to keep every seam point
+       within the brush radius of the line. Striding cuts ~80 round-trips to ~20
+       and takes the test from minutes to seconds. */
+    const STRIDE_PX = 12;
+    const path = [];
+    let last = null;
+    for (const q of order) {
+      if (!last || Math.hypot(q.x - last.x, q.y - last.y) >= STRIDE_PX) { path.push(q); last = q; }
+    }
+    if (path[path.length - 1] !== order[order.length - 1]) path.push(order[order.length - 1]);
+
+    return {
+      visible: visible.length,
+      clear: flags.filter(Boolean).length,
+      stops: path.length,
+      points: path.map(q => ({ x: r.left + q.x, y: r.top + q.y })),
+    };
+  }, pieceId);
+}
+
 /** Reload the page as if the player closed the app and came back. */
 async function reopenKit(page) {
   await page.reload({ waitUntil: 'load' });
@@ -306,5 +374,5 @@ module.exports = {
   KIT_URL, PHONE_LANDSCAPE, openKit, openBoxAndLayOut,
   pieceScreenPos, nextPieceId, emptyStagePoint, suspendToolWheel, advance,
   buildWholeKit, sceneCost, enterShowcase, visiblePartIds, reopenKit,
-  dragPieceHome, swirlScrew,
+  dragPieceHome, swirlScrew, toGlueStep, seamStroke,
 };

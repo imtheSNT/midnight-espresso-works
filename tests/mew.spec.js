@@ -4,6 +4,7 @@ const {
   PHONE_LANDSCAPE, openKit, openBoxAndLayOut, pieceScreenPos, nextPieceId,
   emptyStagePoint, suspendToolWheel, advance, buildWholeKit, sceneCost,
   enterShowcase, visiblePartIds, reopenKit, dragPieceHome, swirlScrew,
+  toGlueStep, seamStroke,
 } = require('./helpers');
 
 /* ------------------------------------------------------------------ *
@@ -700,5 +701,80 @@ test.describe('the tools', () => {
     expect(out.progress, 'a stripped screw goes back to the start').toBe(0);
     expect(out.handlesLeft, 'the handle stays so it can be driven again')
       .toBeGreaterThan(0);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Glue — the other half of the tools. A seam only counts as glued when
+ * every point on it you can see has been brushed, end to end, so the
+ * positive case traces the whole run and the negative case proves a
+ * stroke somewhere else does nothing.
+ * ------------------------------------------------------------------ */
+test.describe('the glue brush', () => {
+  test('a stroke along the seam glues the piece', async ({ page }) => {
+    test.setTimeout(150_000);
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    const piece = await toGlueStep(page);
+    expect(piece, 'no piece in the manual wanted glue').toBeTruthy();
+
+    const stroke = await seamStroke(page, piece);
+    expect(stroke.visible, 'the seam has no points on screen').toBeGreaterThan(0);
+    expect(stroke.points, 'nowhere on the seam could start a stroke').not.toBeNull();
+
+    await page.mouse.move(stroke.points[0].x, stroke.points[0].y);
+    await page.mouse.down();
+
+    const engaged = await page.evaluate(() => ({
+      mode: window.__mew.ctrl.mode, grabbedAPiece: !!window.__mew.BS.drag,
+    }));
+    expect(engaged.grabbedAPiece, 'the stroke picked up a piece instead of gluing').toBe(false);
+    expect(engaged.mode, 'the glue brush did not take the stroke').toBe('brush');
+
+    for (const q of stroke.points) await page.mouse.move(q.x, q.y);
+    await page.mouse.move(stroke.points[0].x, stroke.points[0].y);   // close the run
+    await page.mouse.up();
+
+    const after = await page.evaluate((id) => {
+      const m = window.__mew, rt = m.RT[id];
+      return {
+        glued: m.BS.glued.has(id),
+        seams: rt.seams.map(sm => sm.done),
+        brushed: rt.seams[0].pts.filter(q => q.on).length,
+        total: rt.seams[0].pts.length,
+      };
+    }, piece);
+
+    expect(after.brushed, 'the whole seam should be covered').toBe(after.total);
+    expect(after.seams.every(Boolean), 'every seam should read done').toBe(true);
+    expect(after.glued, 'the piece never counted as glued').toBe(true);
+  });
+
+  test('a stroke away from the seam glues nothing', async ({ page }) => {
+    test.setTimeout(150_000);
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    const piece = await toGlueStep(page);
+    const before = await page.evaluate((id) => ({
+      glued: window.__mew.BS.glued.has(id),
+      brushed: window.__mew.RT[id].seams[0].pts.filter(q => q.on).length,
+    }), piece);
+
+    // a corner of the stage, well clear of anything that wants glue
+    const box = page.viewportSize();
+    await page.mouse.move(40, box.height - 60);
+    await page.mouse.down();
+    for (let i = 1; i <= 20; i++) await page.mouse.move(40 + i * 7, box.height - 60 - i * 2);
+    await page.mouse.up();
+
+    const after = await page.evaluate((id) => ({
+      glued: window.__mew.BS.glued.has(id),
+      brushed: window.__mew.RT[id].seams[0].pts.filter(q => q.on).length,
+    }), piece);
+
+    expect(after.glued, 'brushing empty desk glued the piece').toBe(before.glued);
+    expect(after.brushed, 'brushing empty desk covered part of the seam').toBe(before.brushed);
   });
 });
