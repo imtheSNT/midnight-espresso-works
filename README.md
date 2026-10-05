@@ -195,13 +195,46 @@ not strip anything.
 Add a case to `tests/mew.spec.js` whenever you fix something a player hit — a
 test that doesn't fail when you put the bug back isn't protecting anything.
 
+## Shipping it
+
+The kit is a web page, and stores sell installable apps, so `desktop/` holds a
+shell: an 87-line Electron app whose only job is to open a window and show
+`index.html` with no browser furniture around it. The game is untouched by it
+and still runs by double-clicking the file in a browser.
+
+```bash
+cd desktop && npm install && npm start   # run it
+npm run pack                             # package it to desktop/dist/
+```
+
+Running it and packaging it are both verified — the packaged binary was launched
+and the kit driven inside it. The installer targets (`build:linux`, `build:win`,
+`build:mac`) are configured but have never been run, and the macOS one needs a
+Mac. This is the kind of thing Steam installs. See `desktop/README.md` for the
+rest, including why iOS and Android aren't set up here.
+
+Being self-contained is what makes this work — a kit that fetched three.js from
+a CDN would open to a blank window on a plane.
+
 ## Roadmap
 
-- [ ] Blender-generated 3D models for café décor
-- [x] Room view (interior café perspective) — built, four seats, covered by tests
-- [ ] Additional assembly modules
-- [ ] Mobile/tablet optimizations
-- [ ] App Store / Play Store / Steam releases
+- [x] **Café décor** — all 23 items are built and restylable: three seats, three
+      tables, shelves and cabinet, three lamps, plant, flowers, basket, rug,
+      cushion, wall hanging, till, grinder, scales, pastry stand, and both
+      signature pieces. Modelled procedurally. A Blender pass would be a
+      *quality* upgrade to what exists, not new content — and note it would push
+      the draw-call budget, which is why that test is there.
+- [x] **Room view** — four seats, wider lens, the front of the building fades
+      away, covered by tests.
+- [x] **Assembly modules** — 322 pieces across 12 steps, inside the 300–350
+      target.
+- [x] **Mobile and tablet** — camera overhaul, radial tool wheel at the touch
+      point, flattened pencil response, and a readable instructions panel on a
+      phone held sideways. All of it still wants trying on real hardware: every
+      measurement here was taken under software rendering, which says nothing
+      about how it feels.
+- [ ] **Store releases** — `desktop/` wraps the kit for Steam. iOS and Android
+      need Xcode and Android Studio on your own machine.
 
 ## Credits
 
