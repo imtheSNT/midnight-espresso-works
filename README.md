@@ -93,21 +93,22 @@ Two mitigations already exist and are worth knowing before adding more:
 - **An idle throttle.** When nothing is moving the loop redraws at most once
   every 400ms instead of every frame.
 
-**The throttle rarely engages.** The ambient touches — steam off the cups, dust
-in the light — flick their visibility on and off, and each flick counts as
-movement. Measured at step 0, box just opened, nothing animating and no finger
-on the screen: with the ambient effects disabled the loop settles to 2.4 draws
-per second exactly as designed; with them on it runs flat out. So a phone
-renders the whole scene continuously from the moment the box opens until the
-app closes.
+**The throttle works.** Measured at rest on a phone-sized screen, with nothing
+animating and no finger on the screen: **2.3 draws per second at step 0** and
+**2.2 once the whole kit is built** — the 400ms throttle, exactly as designed.
 
-That is probably a larger battery and heat cost than the draw calls, since draw
-calls only cost while something is drawing. It is also a deliberate piece of
-art direction, so the decision is a design one, not a bug fix. If it needs
-reining in, the cheap options are to let the ambient effects stop after a while
-without input and resume on touch, or to scope them to the showcase and room
-view rather than running them through the whole build. Backgrounding is already
-free — browsers pause the animation frame callback in hidden tabs.
+It takes several seconds to settle into that, because a few things hold the loop
+awake briefly after the last change: the next-piece beacon has a six-second life
+measured on the simulation clock, and that clock slows as the loop idles. Sample
+too early and you will read a high rate and think it never sleeps. It does.
+
+In the showcase the kit draws continuously, around 25 per second, and that is
+correct: the machine is powered and turning. Gears, carousel, steam off the cups.
+Nobody wants that frozen. The steam is gated on showcase (`BS.show`), so it costs
+nothing during the ten hours of building.
+
+So there is no battery problem to fix here. The app is quiet while you build and
+busy while the machine runs, which is the right way round.
 
 The budget test fails above 950 draw calls. If décor pushes it over, that is
 the test working. The safe lever is instancing repeats *within* a single piece
