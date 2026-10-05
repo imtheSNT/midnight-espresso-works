@@ -66,22 +66,51 @@ What's covered:
 | Café | The door is in plain sight rather than behind a tab; the room stays shut until the kit is done, opens on every seat, and puts the front of the building back on the way out |
 | Long game | All 322 pieces build to the final step; progress survives a reload; the finale plays and can always be skipped |
 
-### The draw-call budget
+### Performance
 
-The finished kit currently costs about **785 draw calls** over ~700 visible
-meshes on a phone-sized screen, at roughly 209k triangles. The triangles are
-not a problem — mobile GPUs handle far more. The draw calls are, and the
-finished model is what players look at longest.
+Measured on a phone-sized screen with the kit fully built: **785 draw calls**
+over ~700 visible meshes, ~209k triangles, ~158 separate materials, and only
+two instanced meshes in the whole scene. The triangles are not a concern —
+mobile GPUs handle far more.
 
-Two things keep it high: the scene uses ~158 separate materials, and almost
-nothing is instanced (two instanced meshes in the whole scene). If the décor
-list and the room view land as more individual meshes, this grows in step with
-them. Batching static placed geometry, sharing materials, and instancing
-repeats (screws, bolts, identical parts) are the levers, and they're worth
-reaching for before the App Store build, not after.
+**Don't reach for geometry batching.** It is the usual fix for a draw-call
+count like this, and it does not fit here. 594 of those ~700 meshes belong to
+placed kit parts, so merging the scenery saves almost nothing, and merging the
+kit would break everything that addresses pieces one at a time: `roomHide()`
+hiding the front of the building, X-ray, per-piece highlighting, reset. The
+cost is real but it is the price of a kit whose pieces stay individually alive.
 
-The budget test fails above 950. If you add a lot of décor and it trips, that
-is the test working — batch the new geometry, or raise the ceiling deliberately
+Two mitigations already exist and are worth knowing before adding more:
+
+- **An adaptive ladder.** Frame times are sampled 45 at a time; past a 20ms
+  median the pixel ratio steps down in quarters, then `envTrim()` lightens the
+  environment, then `postDegrade()` lightens post-processing. Weak devices
+  degrade themselves without any work from you.
+- **An idle throttle.** When nothing is moving the loop redraws at most once
+  every 400ms instead of every frame.
+
+**The throttle rarely engages.** The ambient touches — steam off the cups, dust
+in the light — flick their visibility on and off, and each flick counts as
+movement. Measured at step 0, box just opened, nothing animating and no finger
+on the screen: with the ambient effects disabled the loop settles to 2.4 draws
+per second exactly as designed; with them on it runs flat out. So a phone
+renders the whole scene continuously from the moment the box opens until the
+app closes.
+
+That is probably a larger battery and heat cost than the draw calls, since draw
+calls only cost while something is drawing. It is also a deliberate piece of
+art direction, so the decision is a design one, not a bug fix. If it needs
+reining in, the cheap options are to let the ambient effects stop after a while
+without input and resume on touch, or to scope them to the showcase and room
+view rather than running them through the whole build. Backgrounding is already
+free — browsers pause the animation frame callback in hidden tabs.
+
+The budget test fails above 950 draw calls. If décor pushes it over, that is
+the test working. The safe lever is instancing repeats *within* a single piece
+— the screws on one bracket, say — because the instanced mesh still lives in
+that piece's group and hides and moves with it. Instancing the same screw
+across several pieces reintroduces exactly the problem batching has: the pieces
+stop being separately addressable. Otherwise, raise the ceiling deliberately
 with a note about why.
 
 ### Where the detail actually lives
@@ -104,7 +133,7 @@ test that doesn't fail when you put the bug back isn't protecting anything.
 ## Roadmap
 
 - [ ] Blender-generated 3D models for café décor
-- [ ] Room view (interior café perspective)
+- [x] Room view (interior café perspective) — built, four seats, covered by tests
 - [ ] Additional assembly modules
 - [ ] Mobile/tablet optimizations
 - [ ] App Store / Play Store / Steam releases
