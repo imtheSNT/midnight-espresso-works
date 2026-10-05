@@ -45,6 +45,27 @@ test.describe('boot', () => {
     });
     expect(fonts).toEqual({ display: true, ui: true, nunito: true, cinzel: true });
   });
+
+  /* The box card used to carry a hand-typed piece count. It said 311 while the
+     kit held 322 — the number had been left behind by eleven pieces added
+     after someone last edited that string. It is computed from STEPS now, and
+     this test is what stops it being hand-typed again. */
+  test('the box advertises the kit it actually contains', async ({ page }) => {
+    await openKit(page);
+    const { advertised, actual } = await page.evaluate(() => {
+      /* The box intro is skipped under automation unless asked for; call it so
+         the card is built by the same code a player's first launch runs. */
+      window.__mew.boxIntro();
+      const text = document.querySelector('.box-meta').textContent;
+      const [, pieces, steps] = text.match(/(\d+)\s+pieces\s+·\s+(\d+)\s+steps/);
+      const S = window.__mew.STEPS;
+      return {
+        advertised: { pieces: +pieces, steps: +steps },
+        actual: { pieces: S.reduce((n, st) => n + st.parts.length, 0), steps: S.length },
+      };
+    });
+    expect(advertised).toEqual(actual);
+  });
 });
 
 /* ------------------------------------------------------------------ *
