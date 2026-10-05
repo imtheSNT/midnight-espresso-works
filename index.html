@@ -10505,7 +10505,7 @@ function boxIntro() {
   goView({ target: [0, 5, 2], theta: 0.42, phi: 1.02, fit: 24 }, 0.01);
   if (!BOX.overlay) {
     const d = document.createElement('div'); d.className = 'box-card';
-    d.innerHTML = `<p class="box-kicker">A café in miniature</p><h2>Midnight Espresso Works</h2><p class="box-meta">3D wooden model kit · 311 pieces · 12 steps</p><button type="button" class="box-open">Open the box</button><button type="button" class="box-skip">Skip</button>`;
+    d.innerHTML = `<p class="box-kicker">A café in miniature</p><h2>Midnight Espresso Works</h2><p class="box-meta">3D wooden model kit · ${STEPS.reduce((n, st) => n + st.parts.length, 0)} pieces · ${STEPS.length} steps</p><button type="button" class="box-open">Open the box</button><button type="button" class="box-skip">Skip</button>`;
     $('#stage').appendChild(d); BOX.overlay = d;
     d.querySelector('.box-open').addEventListener('click', () => boxOpen());
     d.querySelector('.box-skip').addEventListener('click', () => boxFinish(true));
