@@ -65,6 +65,7 @@ What's covered:
 | Budget | The finished kit stays under 950 draw calls and 400k triangles on a phone |
 | Café | The door is in plain sight rather than behind a tab; the room stays shut until the kit is done, opens on every seat, and puts the front of the building back on the way out |
 | Long game | All 322 pieces build to the final step; progress survives a reload; the finale plays and can always be skipped |
+| Tools | A piece dropped on its outline seats and raises its screws; steady swirling drives one home; swirling far too fast strips it back to the start |
 
 ### Performance
 
@@ -126,6 +127,21 @@ inside the Café pane. It used to be in that pane, which meant it measured 0×0
 whenever the Machine tab was open — and Machine is the tab the showcase opens
 on, so the payoff for a ten-hour build was behind a tab switch nothing prompted.
 Keep it above the panes.
+
+### Testing the tools
+
+The build tests place pieces with `finishInstant`, which skips glue and screws.
+The tool tests don't: they drag a piece onto its outline with real pointer
+events and then trace circles on the screw handle, so the mechanic is exercised
+the way a player drives it.
+
+Two details worth knowing if you touch them. The snap target is not where the
+ghost sits — it includes a pre-seat offset — so `dragPieceHome` hunts for the
+spot the game calls hot rather than computing it, which is also what a hand
+does. And the stripping guard is driven by elapsed time, so the frantic case
+dispatches moves with no pause at all; a `setTimeout` of a few milliseconds
+actually lands around 25ms under load, which is a perfectly safe pace and will
+not strip anything.
 
 Add a case to `tests/mew.spec.js` whenever you fix something a player hit — a
 test that doesn't fail when you put the bug back isn't protecting anything.
