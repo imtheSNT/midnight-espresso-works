@@ -417,6 +417,49 @@ test.describe('inside the café', () => {
     }
   });
 
+  test('the door is in plain sight, not behind a tab', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+    await buildWholeKit(page);
+    await enterShowcase(page);
+    await page.evaluate(() => { window.__mew.sheetShow(true); });
+    await advance(page, 1.0);
+
+    const door = await page.evaluate(() => {
+      const el = document.querySelector('[data-act="room"]');
+      if (!el) return { exists: false };
+      const cs = getComputedStyle(el), r = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      const pane = el.closest('.tab-pane');
+      return {
+        exists: true,
+        activeTab: (document.querySelector('.show-in') || {}).dataset
+          ? document.querySelector('.show-in').dataset.tab : null,
+        buriedInPane: pane ? pane.dataset.pane : null,
+        width: Math.round(r.width), height: Math.round(r.height),
+        shown: cs.display !== 'none' && cs.visibility === 'visible',
+        reachable: !!(hit && (hit === el || el.contains(hit))),
+      };
+    });
+
+    expect(door.exists, 'no way into the café at all').toBe(true);
+    // it used to sit in the café pane, so it was 0x0 whenever another tab was open
+    expect(door.buriedInPane, 'the café door is hidden inside a tab again').toBeNull();
+    expect(door.width, 'the café door has no width').toBeGreaterThan(80);
+    expect(door.height, 'the café door has no height').toBeGreaterThan(20);
+    expect(door.shown, 'the café door is not displayed').toBe(true);
+    expect(door.reachable, 'something is sitting on top of the café door').toBe(true);
+
+    // and it works from whichever tab the showcase opens on
+    const opened = await page.evaluate(() => {
+      const m = window.__mew;
+      document.querySelector('[data-act="room"]').click();
+      for (let i = 0; i < 180; i++) m.tick(1 / 60);
+      return m.ROOM.on;
+    });
+    expect(opened, 'pressing the café door did not open the room').toBe(true);
+  });
+
   test('opens up the front of the building, then puts it back', async ({ page }) => {
     await openKit(page);
     await openBoxAndLayOut(page);
