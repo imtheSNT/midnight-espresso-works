@@ -3,7 +3,7 @@ const { test, expect } = require('@playwright/test');
 const {
   PHONE_LANDSCAPE, openKit, openBoxAndLayOut, pieceScreenPos, nextPieceId,
   emptyStagePoint, suspendToolWheel, advance, buildWholeKit, sceneCost,
-  enterShowcase, visiblePartIds,
+  enterShowcase, visiblePartIds, reopenKit,
 } = require('./helpers');
 
 /* ------------------------------------------------------------------ *
@@ -452,5 +452,125 @@ test.describe('inside the café', () => {
 
     expect(lost, 'pieces stayed hidden after leaving the café').toEqual([]);
     expect(lensAfter, 'the lens was not restored on the way out').toBeCloseTo(lensBefore, 1);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * The long game — a build is ten to fourteen hours, so the two things
+ * that must never break are finishing it and not losing it.
+ * ------------------------------------------------------------------ */
+test.describe('the long game', () => {
+  test('the whole kit builds, every step, to the end', async ({ page }) => {
+    const { errors } = await openKit(page);
+    await openBoxAndLayOut(page);
+
+    const total = await page.evaluate(() => Object.keys(window.__mew.RT).length);
+    await buildWholeKit(page);
+
+    const end = await page.evaluate(() => {
+      const m = window.__mew;
+      const unplaced = Object.values(m.RT)
+        .filter(rt => !m.BS.done.has(rt.def.id))
+        .map(rt => rt.def.name || rt.def.id);
+      return {
+        placed: m.BS.done.size,
+        step: m.BS.step,
+        lastStep: m.STEPS.length - 1,
+        wired: m.BS.wired,
+        unplaced: unplaced.slice(0, 8),
+        unplacedCount: unplaced.length,
+      };
+    });
+
+    expect(end.unplaced, 'pieces the manual never offered').toEqual([]);
+    expect(end.placed, 'not every piece was placed').toBe(total);
+    expect(end.step, 'the build did not reach the final step').toBe(end.lastStep);
+    expect(end.wired, 'the wiring never completed').toBe(true);
+    expect(errors, 'console errors during a full build').toEqual([]);
+  });
+
+  test('progress survives closing the app', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    const before = await page.evaluate(() => {
+      const m = window.__mew;
+      const tick = (n) => { for (let i = 0; i < n; i++) m.tick(1 / 60); };
+      for (let s = 0; s < 3; s++) {
+        let id;
+        while ((id = m.strictNext())) { m.finishInstant(id); tick(3); }
+        if (m.STEPS[m.BS.step].wire && !m.BS.wired) m.Wire.finish(true);
+        m.Build.nextStep(); tick(3);
+      }
+      const half = Math.floor(m.STEPS[m.BS.step].parts.length / 2);
+      for (let i = 0; i < half; i++) {
+        const id = m.strictNext();
+        if (!id) break;
+        m.finishInstant(id); tick(3);
+      }
+      m.Build.save();
+      return { step: m.BS.step, done: [...m.BS.done].sort(), glued: [...m.BS.glued].sort(),
+               wired: m.BS.wired, unboxed: !!m.BS.unboxed };
+    });
+    expect(before.done.length, 'nothing was built before reloading').toBeGreaterThan(20);
+
+    await reopenKit(page);
+    await advance(page, 1.0);
+
+    const after = await page.evaluate(() => {
+      const m = window.__mew;
+      return { step: m.BS.step, done: [...m.BS.done].sort(), glued: [...m.BS.glued].sort(),
+               wired: m.BS.wired, unboxed: !!m.BS.unboxed,
+               // anything recorded as placed must actually be standing in the model
+               notStanding: [...m.BS.done].filter(id => m.RT[id] && m.RT[id].state !== 'done') };
+    });
+
+    expect(after.step, 'came back on the wrong step').toBe(before.step);
+    expect(after.done, 'placed pieces were lost').toEqual(before.done);
+    expect(after.glued, 'glue was lost').toEqual(before.glued);
+    expect(after.wired, 'wiring was lost').toBe(before.wired);
+    expect(after.unboxed, 'the box was shut again').toBe(before.unboxed);
+    expect(after.notStanding, 'pieces counted as placed but not standing in the model').toEqual([]);
+  });
+
+  test('the finale plays and can always be skipped', async ({ page }) => {
+    // the film is driven by the clock and the DOM, so it runs without drawing a frame
+    test.setTimeout(150_000);
+    await openKit(page);
+    await openBoxAndLayOut(page);
+    await buildWholeKit(page);
+
+    await page.evaluate(() => { window.__mew.UI.enterShowcase({ reveal: true }); });
+    await page.waitForTimeout(3000);
+
+    const playing = await page.evaluate(() => {
+      const el = document.getElementById('cine-skip');
+      const r = el && el.getBoundingClientRect();
+      const hit = r && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return {
+        running: !!window.__mew.CINE.busy,
+        filmClass: /cine-(reveal|film)/.test(document.body.className),
+        skipShown: el ? getComputedStyle(el).visibility === 'visible' : false,
+        // the canvas sits under this button; if it ever swallows the click the player is stuck
+        skipReachable: !!(hit && (hit === el || el.contains(hit))),
+      };
+    });
+
+    expect(playing.running, 'the finale never started').toBe(true);
+    expect(playing.filmClass, 'the film styling never applied').toBe(true);
+    expect(playing.skipShown, 'no way out of the film was shown').toBe(true);
+    expect(playing.skipReachable, 'the skip button is behind the canvas').toBe(true);
+
+    // click the control itself: Playwright's actionability check races the film's
+    // own phase changes, and reachability is already asserted above by hit test
+    await page.evaluate(() => { document.getElementById('cine-skip').click(); });
+    await page.waitForTimeout(3000);
+
+    const after = await page.evaluate(() => ({
+      running: !!window.__mew.CINE.busy,
+      show: window.__mew.BS.show,
+    }));
+    expect(after.running, 'skipping did not end the film').toBe(false);
+    expect(after.show, 'skipping should still leave the kit finished').toBe(true);
   });
 });

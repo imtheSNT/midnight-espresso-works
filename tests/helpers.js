@@ -147,6 +147,15 @@ async function enterShowcase(page) {
   });
 }
 
+/** Reload the page as if the player closed the app and came back. */
+async function reopenKit(page) {
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForFunction(() => !!window.__mew, null, { timeout: 60_000 });
+  await page.waitForFunction(() => window.__mew.renderer && document.fonts.status === 'loaded',
+    null, { timeout: 60_000 });
+  await page.evaluate(() => { window.__mew.noRender = true; });
+}
+
 /** Every part id currently drawing something, as the player would see it. */
 async function visiblePartIds(page) {
   return page.evaluate(() => {
@@ -211,5 +220,5 @@ async function advance(page, seconds = 1.5) {
 module.exports = {
   KIT_URL, PHONE_LANDSCAPE, openKit, openBoxAndLayOut,
   pieceScreenPos, nextPieceId, emptyStagePoint, suspendToolWheel, advance,
-  buildWholeKit, sceneCost, enterShowcase, visiblePartIds,
+  buildWholeKit, sceneCost, enterShowcase, visiblePartIds, reopenKit,
 };
