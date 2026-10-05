@@ -1,0 +1,57 @@
+{
+  "name": "midnight-espresso-works-desktop",
+  "productName": "Midnight Espresso Works",
+  "version": "4.1.0",
+  "private": true,
+  "description": "Desktop shell for the Midnight Espresso Works kit builder.",
+  "main": "main.js",
+  "author": "imtheSNT",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "build:linux": "electron-builder --linux",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.0.12"
+  },
+  "build": {
+    "appId": "works.imthesnt.midnightespresso",
+    "productName": "Midnight Espresso Works",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../index.html",
+        "to": "index.html"
+      }
+    ],
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Game"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.games"
+    }
+  }
+}
