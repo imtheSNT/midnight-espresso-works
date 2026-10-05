@@ -9659,7 +9659,13 @@ function initControls() {
 }
 function onPD(e) {
   Sound.unlock();
-  if (ctrl.pointers.size === 0 && tableDown(e)) return;   /* a piece picked up off the table */
+  /* The glue brush beats picking a piece off the table. With the brush in hand and the pointer
+     on a seam that still needs glue, gluing is plainly what was meant, and loose pieces often
+     lie right over the seam: on the veneer fascia only 1 of its 82 seam points was reachable.
+     The wrap pieces are traced with the hand, which is also the pick-up tool, so they keep the
+     old order and pick up as before. */
+  const brushFirst = BS.tool === 'glue' && Build.wantsBrush(e);
+  if (!brushFirst && ctrl.pointers.size === 0 && tableDown(e)) return;   /* a piece picked up off the table */
   if (Wheel.open) Wheel.close();
   canvas.setPointerCapture(e.pointerId);
   ctrl.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button });

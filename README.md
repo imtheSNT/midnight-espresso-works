@@ -68,7 +68,7 @@ What's covered:
 | Café | The door is in plain sight rather than behind a tab; the room stays shut until the kit is done, opens on every seat, and puts the front of the building back on the way out |
 | Long game | All 322 pieces build to the final step; progress survives a reload; the finale plays and can always be skipped |
 | Tools | A piece dropped on its outline seats and raises its screws; steady swirling drives one home; swirling far too fast strips it back to the start |
-| Glue | A stroke along a seam glues the piece end to end; a stroke anywhere else glues nothing |
+| Glue | A stroke along a seam glues the piece end to end; a stroke anywhere else glues nothing; the brush takes a press even when a loose piece lies on the seam |
 
 ### Performance
 
@@ -117,23 +117,24 @@ across several pieces reintroduces exactly the problem batching has: the pieces
 stop being separately addressable. Otherwise, raise the ceiling deliberately
 with a note about why.
 
-### One thing the glue tests turned up
+### Why the glue brush takes a press before a loose piece
 
-The canvas asks "did you grab a piece off the table?" before it asks "are you
-brushing a seam?". So with the glue brush in hand and the pointer over an
-unglued seam, a loose piece lying on top of that seam wins the press and gets
-picked up instead.
+The canvas used to ask "did you grab a piece off the table?" before "are you
+brushing a seam?". Loose pieces often lie right on top of the seam you need to
+glue: on the first glued piece — the veneer fascia, step one — only **1 of its
+82 on-screen seam points** could start a stroke. The other 81 handed the press
+to a piece, so with the brush in hand you picked up a part instead of gluing.
 
-It is not hypothetical. On the first glued piece — the veneer fascia, step one —
-exactly **1 of its 82 on-screen seam points** can start a glue stroke; the other
-81 have a loose piece over them. The tests work around it by hunting for that
-one clear point, which is why `seamStroke` does a raycast per point.
+`pointerdown` now checks the brush first, but only when the glue tool is the one
+in hand. That exception matters: the wrap pieces (the timing belt) are traced
+with the **hand**, which is also the pick-up tool, so reordering for them would
+have broken picking pieces up near the belt. They keep the old order.
 
-Swapping the two checks in the canvas `pointerdown` handler would fix it, and
-`wantsBrush` already requires the glue tool to be selected and the pointer to be
-on a seam, so the change would only bite when someone is plainly trying to glue.
-It is left alone here because it changes which tool wins a press, which is your
-call rather than a bug fix.
+| Tool in hand | Pointer on an unglued seam | What happens |
+| --- | --- | --- |
+| Glue brush | yes | brushes the seam |
+| Glue brush | no | as before |
+| Hand (incl. wrap pieces) | either | picks pieces up, as before |
 
 ### Where the detail actually lives
 
