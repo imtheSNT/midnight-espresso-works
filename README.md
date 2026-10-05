@@ -69,6 +69,7 @@ What's covered:
 | Long game | All 322 pieces build to the final step; progress survives a reload; the finale plays and can always be skipped |
 | Tools | A piece dropped on its outline seats and raises its screws; steady swirling drives one home; swirling far too fast strips it back to the start |
 | Glue | A stroke along a seam glues the piece end to end; a stroke anywhere else glues nothing; the brush takes a press even when a loose piece lies on the seam |
+| Press | Holding the ring clicks the piece down; letting go early lets it spring back unseated |
 
 ### Performance
 
@@ -117,6 +118,23 @@ that piece's group and hides and moves with it. Instancing the same screw
 across several pieces reintroduces exactly the problem batching has: the pieces
 stop being separately addressable. Otherwise, raise the ceiling deliberately
 with a note about why.
+
+### Timing in tests: hold by fill, not by the clock
+
+The press ring fills over about 0.45s of *simulated* time, and the frame loop
+clamps `dt` to 50ms. On a slow machine a fixed 700ms press therefore delivers
+far less than 700ms of fill and the piece never clicks down — a flaky test
+rather than a bug. `pressAndHold` holds until the ring reaches a given fill
+instead of for a set duration.
+
+It also polls once per animation frame rather than on a timer. A `setTimeout`
+can be delayed for hundreds of milliseconds under load, which is long enough
+for the ring to sail past the release point and reach the top; per-frame polling
+can only overshoot by one frame's worth.
+
+The same thinking applies to the screwdriver from the other direction: there, a
+short `setTimeout` lands near 25ms under load, which is a perfectly safe swirling
+pace, so testing the strip rule means dispatching with no pause at all.
 
 ### Why the glue brush takes a press before a loose piece
 
