@@ -242,6 +242,44 @@ test.describe('phone held sideways', () => {
 });
 
 /* ------------------------------------------------------------------ *
+ * The wiring board — its lead total was typed in four places, two of
+ * them the comparisons that decide when the step may be closed.
+ * ------------------------------------------------------------------ */
+test.describe('the wiring board', () => {
+  test('counts the leads it actually has, and stays shut until they are in', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    const board = await page.evaluate(() => {
+      const m = window.__mew;
+      const tick = (n) => { for (let i = 0; i < n; i++) m.tick(1 / 60); };
+      /* Build forward until the wiring step's parts are all seated — that is
+         what makes the board open. Stop there, and leave it unwired. */
+      for (let s = 0; s < m.STEPS.length; s++) {
+        let id;
+        while ((id = m.strictNext())) { m.finishInstant(id); tick(2); }
+        if (m.STEPS[m.BS.step].wire) break;
+        if (m.BS.step < m.STEPS.length - 1) { m.Build.nextStep(); tick(2); }
+      }
+      m.Wire.open();
+      const shown = document.getElementById('wire-count').textContent.match(/of (\d+) leads/);
+      return {
+        opened: m.Wire.isOpen,
+        shownTotal: shown ? +shown[1] : null,
+        realTotal: Object.keys(m.WL.pins).length,
+        connected: m.Wire.conns.size,
+        doneDisabled: document.getElementById('wire-done').disabled,
+      };
+    });
+
+    expect(board.opened, 'the wiring board never opened').toBe(true);
+    expect(board.connected, 'expected a fresh board with nothing wired').toBe(0);
+    expect(board.shownTotal, 'the board advertises a lead count it does not have').toBe(board.realTotal);
+    expect(board.doneDisabled, 'a fresh board can be closed with no leads connected').toBe(true);
+  });
+});
+
+/* ------------------------------------------------------------------ *
  * Camera — the thing that stopped Marcus's aunt cold on an iPad.
  * ------------------------------------------------------------------ */
 test.describe('camera', () => {
