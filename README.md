@@ -64,6 +64,7 @@ What's covered:
 | Tools | Press-and-hold opens the tool wheel centred on the touch |
 | Budget | The finished kit stays under 950 draw calls and 400k triangles on a phone |
 | Café | The room view stays shut until the kit is done, opens on every seat, and puts the front of the building back on the way out |
+| Long game | All 322 pieces build to the final step; progress survives a reload; the finale plays and can always be skipped |
 
 ### The draw-call budget
 
