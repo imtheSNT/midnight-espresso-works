@@ -13385,6 +13385,7 @@ const UI = {
     return `<div class="sheet-in booklet show-in" data-tab="${this.showTab || 'machine'}">
   <div class="head-row"><div><p class="kicker"><span class="verb v-place">Complete</span><span>${PART_DEFS.filter(d => !d.install).length} parts in ${STEPS.length} steps</span></p><h1 class="title">Midnight Espresso Works</h1></div>${COLLAPSE_BTN}<button class="icon-btn sheet-x" type="button" data-act="sheet-close" aria-label="Close the panel"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>${ENV.want === 'terrace' ? `<button class="icon-btn cine-go" type="button" data-act="cine-tour" aria-label="Play the café film" title="Play the film"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M10 9.2v5.6l4.8-2.8z" fill="currentColor"/></svg></button>` : ''}<button class="icon-btn scene-hide" type="button" data-act="scene-only" aria-label="Hide the controls and enjoy the scene" title="Hide the controls"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18M10.6 5.1A10.8 10.8 0 0 1 12 5c6 0 9.5 7 9.5 7a17 17 0 0 1-3.1 3.9M6.3 6.3C3.9 8 2.5 12 2.5 12S6 19 12 19c1.8 0 3.3-.5 4.6-1.2M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg></button></div>
   <div class="bk-tabs" role="tablist" aria-label="Showcase"><button type="button" role="tab" data-tab="machine" aria-selected="${(this.showTab || 'machine') === 'machine'}">Machine</button><button type="button" role="tab" data-tab="cafe" aria-selected="${(this.showTab || 'machine') === 'cafe'}">Café</button><button type="button" role="tab" data-tab="scene" aria-selected="${(this.showTab || 'machine') === 'scene'}">Scene</button></div>
+  <button class="room-go" type="button" data-act="room"><b>Step inside the café</b><small>See the room you furnished, lamps lit and open for business</small></button>
   <div class="tab-pane" data-pane="machine">
   <div class="power-row">
     <button class="power${on ? '' : ' ready'}" id="btn-power" type="button" aria-pressed="${on}"><span class="power-led" aria-hidden="true"></span><span><b>Power</b><small>${on ? 'Running on USB-C 5 V' : 'USB-C 5 V'}</small></span></button>
@@ -13399,7 +13400,6 @@ const UI = {
   </div>
   </div>
   <div class="tab-pane" data-pane="cafe">
-  <button class="room-go" type="button" data-act="room"><b>Step inside the café</b><small>See the room you furnished, lamps lit and open for business</small></button>
   <div class="cos">
     ${this.decorHTML(true)}
   </div></div>

@@ -63,7 +63,7 @@ What's covered:
 | Camera | A drag turns the model; the view can't flip under or over it; zoom stays in range |
 | Tools | Press-and-hold opens the tool wheel centred on the touch |
 | Budget | The finished kit stays under 950 draw calls and 400k triangles on a phone |
-| Café | The room view stays shut until the kit is done, opens on every seat, and puts the front of the building back on the way out |
+| Café | The door is in plain sight rather than behind a tab; the room stays shut until the kit is done, opens on every seat, and puts the front of the building back on the way out |
 | Long game | All 322 pieces build to the final step; progress survives a reload; the finale plays and can always be skipped |
 
 ### The draw-call budget
@@ -90,8 +90,13 @@ Most of the kit's craftsmanship — the owl's spectacles and bow tie, the menu
 board, the till and scales, the glazed cup cabinet, the gear train — is only
 legible from a few units away. At the distance the finished kit is framed on
 the desk, it reads as empty shelving. The room view is what rescues it, so
-treat "Inside the café" as a headline feature rather than a bonus, and keep it
-easy to reach from the moment the build finishes.
+treat "Inside the café" as a headline feature rather than a bonus.
+
+"Step inside the café" therefore sits above the showcase tabs rather than
+inside the Café pane. It used to be in that pane, which meant it measured 0×0
+whenever the Machine tab was open — and Machine is the tab the showcase opens
+on, so the payoff for a ten-hour build was behind a tab switch nothing prompted.
+Keep it above the panes.
 
 Add a case to `tests/mew.spec.js` whenever you fix something a player hit — a
 test that doesn't fail when you put the bug back isn't protecting anything.
