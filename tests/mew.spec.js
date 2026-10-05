@@ -751,6 +751,51 @@ test.describe('the glue brush', () => {
     expect(after.glued, 'the piece never counted as glued').toBe(true);
   });
 
+  test('the brush beats a loose piece lying on the seam', async ({ page }) => {
+    test.setTimeout(150_000);
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    const piece = await toGlueStep(page);
+
+    /* Loose pieces sit right on top of this seam — on the veneer fascia, 81 of its
+       82 on-screen points have one over them. The canvas used to hand the press to
+       the piece, so with the brush in hand you picked up a part instead of gluing. */
+    const covered = await page.evaluate((id) => {
+      const m = window.__mew;
+      m.Build.updateOverlays();
+      const r = m.renderer.domElement.getBoundingClientRect();
+      const picks = m.TABLE.shown
+        .map(i => m.TABLE.clones[i] && m.TABLE.clones[i].userData.pick).filter(Boolean);
+      const rc = new THREE.Raycaster(), v = new THREE.Vector2();
+      const under = (q) => {
+        v.set((q.x / r.width) * 2 - 1, -(q.y / r.height) * 2 + 1);
+        rc.setFromCamera(v, m.camera);
+        return rc.intersectObjects(picks, true).length > 0;
+      };
+      const visible = m.RT[id].seams[0].pts.filter(q => !q.behind);
+      const blocked = visible.filter(under);
+      return {
+        visible: visible.length,
+        blocked: blocked.length,
+        at: blocked[0] ? { x: r.left + blocked[0].x, y: r.top + blocked[0].y } : null,
+      };
+    }, piece);
+
+    test.skip(!covered.at, 'nothing is lying over this seam, so there is nothing to beat');
+
+    await page.mouse.move(covered.at.x, covered.at.y);
+    await page.mouse.down();
+    const got = await page.evaluate(() => ({
+      mode: window.__mew.ctrl.mode,
+      grabbedAPiece: !!window.__mew.BS.drag,
+    }));
+    await page.mouse.up();
+
+    expect(got.grabbedAPiece, 'the press picked up a loose piece instead of gluing').toBe(false);
+    expect(got.mode, 'the glue brush should take a press aimed at its seam').toBe('brush');
+  });
+
   test('a stroke away from the seam glues nothing', async ({ page }) => {
     test.setTimeout(150_000);
     await openKit(page);

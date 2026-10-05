@@ -154,15 +154,7 @@ async function enterShowcase(page) {
  * also what a hand does. Returns true if the piece landed.
  */
 async function dragPieceHome(page, pieceId) {
-  const start = await pieceScreenPos(page, pieceId);
-  if (!start || !start.onScreen) return false;
-
-  await page.mouse.move(start.x, start.y);
-  await page.mouse.down();
-  await page.mouse.move(start.x + 25, start.y - 20, { steps: 3 });
-  await page.waitForTimeout(120);
-
-  const ghost = await page.evaluate((id) => {
+  const ghostAt = () => page.evaluate((id) => {
     const rt = window.__mew.RT[id];
     if (!rt.ghost) return null;
     const v = new THREE.Vector3();
@@ -170,22 +162,41 @@ async function dragPieceHome(page, pieceId) {
     const r = window.__mew.renderer.domElement.getBoundingClientRect();
     return { x: r.left + (v.x * 0.5 + 0.5) * r.width, y: r.top + (-v.y * 0.5 + 0.5) * r.height };
   }, pieceId);
-  if (!ghost) { await page.mouse.up(); return false; }
 
-  let landed = false;
-  search:
-  for (const radius of [0, 30, 60, 90, 120, 160, 200, 250]) {
-    const steps = radius === 0 ? 1 : Math.max(8, Math.round(radius / 12));
-    for (let i = 0; i < steps; i++) {
-      const a = (i / steps) * Math.PI * 2;
-      await page.mouse.move(ghost.x + Math.cos(a) * radius, ghost.y + Math.sin(a) * radius);
-      if (await page.evaluate((id) => window.__mew.RT[id].dragHot, pieceId)) { landed = true; break search; }
+  const attempt = async () => {
+    const start = await pieceScreenPos(page, pieceId);
+    if (!start || !start.onScreen) return false;
+
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(start.x + 25, start.y - 20, { steps: 3 });
+    // let any camera move that the pick-up triggered finish, or the target drifts mid-search
+    await advance(page, 1.2);
+    await page.waitForTimeout(250);
+
+    for (const radius of [0, 25, 50, 80, 115, 155, 200, 250]) {
+      const ghost = await ghostAt();          // re-read: the view can still be settling
+      if (!ghost) break;
+      const steps = radius === 0 ? 1 : Math.max(10, Math.round(radius / 10));
+      for (let i = 0; i < steps; i++) {
+        const a = (i / steps) * Math.PI * 2;
+        await page.mouse.move(ghost.x + Math.cos(a) * radius, ghost.y + Math.sin(a) * radius);
+        await page.waitForTimeout(15);        // give the move a chance to be handled
+        if (await page.evaluate((id) => window.__mew.RT[id].dragHot, pieceId)) {
+          await page.mouse.up();
+          await advance(page, 2.5);
+          await page.waitForTimeout(300);
+          return page.evaluate((id) => window.__mew.RT[id].state !== 'tray', pieceId);
+        }
+      }
     }
-  }
-  await page.mouse.up();
-  await advance(page, 2.5);
-  await page.waitForTimeout(300);
-  return landed;
+    await page.mouse.up();
+    await advance(page, 2.0);
+    await page.waitForTimeout(250);
+    return false;
+  };
+
+  return (await attempt()) || (await attempt());
 }
 
 /**
