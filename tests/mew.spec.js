@@ -3,7 +3,7 @@ const { test, expect } = require('@playwright/test');
 const {
   PHONE_LANDSCAPE, openKit, openBoxAndLayOut, pieceScreenPos, nextPieceId,
   emptyStagePoint, suspendToolWheel, advance, buildWholeKit, sceneCost,
-  enterShowcase, visiblePartIds, reopenKit,
+  enterShowcase, visiblePartIds, reopenKit, dragPieceHome, swirlScrew,
 } = require('./helpers');
 
 /* ------------------------------------------------------------------ *
@@ -615,5 +615,90 @@ test.describe('the long game', () => {
     }));
     expect(after.running, 'skipping did not end the film').toBe(false);
     expect(after.show, 'skipping should still leave the kit finished').toBe(true);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * The tools — what ten hours of play actually consists of. Every other
+ * test here places pieces with finishInstant, which skips glue and
+ * screws entirely, so none of this was covered.
+ *
+ * The screw is the signature mechanic: about a second and a half of
+ * steady swirling seats it, and swirling much faster strips it and
+ * sends it back to the start. Both halves are tested, because a strip
+ * rule that never fires is the same as no strip rule.
+ * ------------------------------------------------------------------ */
+test.describe('the tools', () => {
+  /** Finish step 0 and move to the first step whose pieces are screwed down. */
+  const toScrewStep = async (page) => page.evaluate(() => {
+    const m = window.__mew;
+    const tick = (n) => { for (let i = 0; i < n; i++) m.tick(1 / 60); };
+    let id;
+    while ((id = m.strictNext())) { m.finishInstant(id); tick(3); }
+    m.Build.nextStep(); tick(20);
+    const next = m.strictNext();
+    return { step: m.BS.step, title: m.STEPS[m.BS.step].title, piece: next,
+             action: next ? m.RT[next].def.action : null };
+  });
+
+  test('a piece dropped on its outline seats, and its screws come up', async ({ page }) => {
+    test.setTimeout(150_000);
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    const at = await toScrewStep(page);
+    expect(at.action, `expected a screwed piece on step "${at.title}"`).toBe('screw');
+
+    const landed = await dragPieceHome(page, at.piece);
+    expect(landed, 'never found the spot the game calls hot').toBe(true);
+
+    const seated = await page.evaluate((id) => ({
+      state: window.__mew.RT[id].state,
+      handles: document.querySelectorAll('#handles .screw').length,
+      screws: window.__mew.RT[id].screws.length,
+    }), at.piece);
+
+    expect(seated.state, 'the piece did not seat on its outline').toBe('screws');
+    expect(seated.handles, 'no screw handles came up').toBeGreaterThan(0);
+    expect(seated.handles, 'a handle per screw').toBe(seated.screws);
+  });
+
+  test('steady swirling drives a screw home', async ({ page }) => {
+    test.setTimeout(150_000);
+    await openKit(page);
+    await openBoxAndLayOut(page);
+    const at = await toScrewStep(page);
+    expect(await dragPieceHome(page, at.piece)).toBe(true);
+
+    const before = await page.evaluate(() =>
+      document.querySelectorAll('#handles .screw').length);
+
+    // ~1.6 turns at a human pace: 50ms between moves
+    const out = await swirlScrew(page, { turns: 1.6, msPerStep: 50 });
+    expect(out.error).toBeUndefined();
+
+    expect(out.seated, 'steady swirling did not seat the screw').toBe(true);
+    expect(out.stripped, 'a steady pace should never strip').toBe(false);
+    expect(out.progress, 'the screw should read fully driven').toBe(1);
+    expect(out.handlesLeft, 'the handle should go once the screw is home')
+      .toBe(before - 1);
+  });
+
+  test('swirling far too fast strips it back to the start', async ({ page }) => {
+    test.setTimeout(150_000);
+    await openKit(page);
+    await openBoxAndLayOut(page);
+    const at = await toScrewStep(page);
+    expect(await dragPieceHome(page, at.piece)).toBe(true);
+
+    // six turns with no pause at all — far beyond any hand
+    const out = await swirlScrew(page, { turns: 6, msPerStep: 0 });
+    expect(out.error).toBeUndefined();
+
+    expect(out.stripped, 'a frantic swirl should have stripped the screw').toBe(true);
+    expect(out.seated, 'a stripped screw must not count as driven').toBe(false);
+    expect(out.progress, 'a stripped screw goes back to the start').toBe(0);
+    expect(out.handlesLeft, 'the handle stays so it can be driven again')
+      .toBeGreaterThan(0);
   });
 });

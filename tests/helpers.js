@@ -147,6 +147,91 @@ async function enterShowcase(page) {
   });
 }
 
+/**
+ * Drag a piece from the table onto its outline and release, the way a player does.
+ * The snap target is not the ghost's position — it includes a pre-seat offset the
+ * game keeps private — so this hunts for the spot the game calls "hot", which is
+ * also what a hand does. Returns true if the piece landed.
+ */
+async function dragPieceHome(page, pieceId) {
+  const start = await pieceScreenPos(page, pieceId);
+  if (!start || !start.onScreen) return false;
+
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x + 25, start.y - 20, { steps: 3 });
+  await page.waitForTimeout(120);
+
+  const ghost = await page.evaluate((id) => {
+    const rt = window.__mew.RT[id];
+    if (!rt.ghost) return null;
+    const v = new THREE.Vector3();
+    rt.ghost.getWorldPosition(v).project(window.__mew.camera);
+    const r = window.__mew.renderer.domElement.getBoundingClientRect();
+    return { x: r.left + (v.x * 0.5 + 0.5) * r.width, y: r.top + (-v.y * 0.5 + 0.5) * r.height };
+  }, pieceId);
+  if (!ghost) { await page.mouse.up(); return false; }
+
+  let landed = false;
+  search:
+  for (const radius of [0, 30, 60, 90, 120, 160, 200, 250]) {
+    const steps = radius === 0 ? 1 : Math.max(8, Math.round(radius / 12));
+    for (let i = 0; i < steps; i++) {
+      const a = (i / steps) * Math.PI * 2;
+      await page.mouse.move(ghost.x + Math.cos(a) * radius, ghost.y + Math.sin(a) * radius);
+      if (await page.evaluate((id) => window.__mew.RT[id].dragHot, pieceId)) { landed = true; break search; }
+    }
+  }
+  await page.mouse.up();
+  await advance(page, 2.5);
+  await page.waitForTimeout(300);
+  return landed;
+}
+
+/**
+ * Trace circles on a screw handle, as the screwdriver asks you to.
+ * msPerStep 0 dispatches with no pause, which is far faster than any hand and is
+ * how the stripping guard gets tested; a real pace is 40-60ms between moves.
+ */
+async function swirlScrew(page, { turns, msPerStep, handleIndex = 0 }) {
+  return page.evaluate(async ({ turns, msPerStep, handleIndex }) => {
+    const m = window.__mew;
+    m.BS.tool = 'screw';
+    const el = [...document.querySelectorAll('#handles .screw')][handleIndex];
+    if (!el) return { error: 'no screw handle at index ' + handleIndex };
+
+    const r = el.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2, R = 42;
+    const perCircle = 24, total = Math.round(perCircle * turns);
+    const stripsBefore = m.BS.strips || 0;
+    const at = (a) => ({ x: cx + Math.cos(a) * R, y: cy + Math.sin(a) * R });
+    const fire = (type, x, y) => el.dispatchEvent(new PointerEvent(type, {
+      pointerId: 7, bubbles: true, cancelable: true, clientX: x, clientY: y,
+      pointerType: 'mouse', isPrimary: true,
+    }));
+
+    const first = at(0);
+    fire('pointerdown', first.x, first.y);
+    for (let i = 1; i <= total; i++) {
+      const q = at((i / perCircle) * Math.PI * 2);
+      fire('pointermove', q.x, q.y);
+      if (msPerStep > 0) await new Promise(res => setTimeout(res, msPerStep));
+    }
+    const last = at((total / perCircle) * Math.PI * 2);
+    fire('pointerup', last.x, last.y);
+
+    const screw = Object.values(m.RT).flatMap(rt => rt.screws || []).find(q => q.el === el)
+      || Object.values(m.RT).flatMap(rt => rt.screws || []).find(q => q.done);
+    return {
+      difficulty: m.BS.diff,
+      seated: !!(screw && screw.done),
+      progress: screw ? +(screw.prog || 0).toFixed(2) : null,
+      stripped: (m.BS.strips || 0) > stripsBefore,
+      handlesLeft: document.querySelectorAll('#handles .screw').length,
+    };
+  }, { turns, msPerStep, handleIndex });
+}
+
 /** Reload the page as if the player closed the app and came back. */
 async function reopenKit(page) {
   await page.reload({ waitUntil: 'load' });
@@ -221,4 +306,5 @@ module.exports = {
   KIT_URL, PHONE_LANDSCAPE, openKit, openBoxAndLayOut,
   pieceScreenPos, nextPieceId, emptyStagePoint, suspendToolWheel, advance,
   buildWholeKit, sceneCost, enterShowcase, visiblePartIds, reopenKit,
+  dragPieceHome, swirlScrew,
 };
