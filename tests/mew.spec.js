@@ -4,7 +4,7 @@ const {
   PHONE_LANDSCAPE, openKit, openBoxAndLayOut, pieceScreenPos, nextPieceId,
   emptyStagePoint, suspendToolWheel, advance, buildWholeKit, sceneCost,
   enterShowcase, visiblePartIds, reopenKit, dragPieceHome, swirlScrew,
-  toGlueStep, seamStroke,
+  toGlueStep, seamStroke, pressAndHold,
 } = require('./helpers');
 
 /* ------------------------------------------------------------------ *
@@ -821,5 +821,64 @@ test.describe('the glue brush', () => {
 
     expect(after.glued, 'brushing empty desk glued the piece').toBe(before.glued);
     expect(after.brushed, 'brushing empty desk covered part of the seam').toBe(before.brushed);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * The press — 98 of the 322 pieces are seated this way, which makes it
+ * the most-used action in the kit and the one most worth protecting.
+ * The ring fills in about 0.45s of simulated time and drains back over
+ * 0.3s, so holding long enough clicks the piece down and letting go early
+ * does not. Note the frame loop clamps dt to 50ms, so on a slow device the
+ * press takes longer in real time than 0.45s.
+ * ------------------------------------------------------------------ */
+test.describe('the press', () => {
+  const seatFirstPiece = async (page) => {
+    const piece = await nextPieceId(page);
+    expect(piece, 'the manual should want a first piece').toBeTruthy();
+    const action = await page.evaluate((id) => window.__mew.RT[id].def.action, piece);
+    expect(action, 'the first piece should be a pressed one').toBe('press');
+
+    expect(await dragPieceHome(page, piece), 'the piece never landed on its outline').toBe(true);
+
+    const raised = await page.evaluate((id) => ({
+      state: window.__mew.RT[id].state,
+      rings: document.querySelectorAll('#handles .hold').length,
+    }), piece);
+    expect(raised.state, 'the piece should be waiting to be pressed').toBe('press');
+    expect(raised.rings, 'no press ring came up').toBe(1);
+    return piece;
+  };
+
+  test('holding the ring clicks the piece down', async ({ page }) => {
+    test.setTimeout(150_000);
+    await openKit(page);
+    await openBoxAndLayOut(page);
+    const piece = await seatFirstPiece(page);
+
+    const out = await pressAndHold(page, { untilFilled: true });
+    expect(out.error).toBeUndefined();
+    expect(out.timedOut, 'the ring never filled').toBe(false);
+    expect(out.id, 'pressed the wrong piece').toBe(piece);
+    expect(out.seated, 'a long hold did not seat the piece').toBe(true);
+    expect(out.state, 'the piece should be done once pressed').toBe('done');
+    expect(out.ringsLeft, 'the ring should go once the piece is down').toBe(0);
+  });
+
+  test('letting go early lets it spring back', async ({ page }) => {
+    test.setTimeout(150_000);
+    await openKit(page);
+    await openBoxAndLayOut(page);
+    const piece = await seatFirstPiece(page);
+
+    // let go a third of the way up, however long that takes on this machine
+    const out = await pressAndHold(page, { releaseAt: 0.25 });
+    expect(out.error).toBeUndefined();
+    expect(out.peak, 'the ring should have started filling').toBeGreaterThan(0.1);
+    expect(out.peak, 'released too late to be a short press').toBeLessThan(0.95);
+    expect(out.after, 'the ring should drain back after letting go').toBe(0);
+    expect(out.seated, 'letting go early should not seat the piece').toBe(false);
+    expect(out.state, 'the piece should still be waiting to be pressed').toBe('press');
+    expect(out.ringsLeft, 'the ring should stay so it can be pressed again').toBe(1);
   });
 });

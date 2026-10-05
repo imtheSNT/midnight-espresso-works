@@ -311,6 +311,61 @@ async function seamStroke(page, pieceId) {
   }, pieceId);
 }
 
+/**
+ * Press and hold the ring that a seated piece raises, then let go.
+ *
+ * Hold by how full the ring is, never by wall-clock time. The frame loop clamps
+ * dt to 50ms, so on a slow machine a fixed 700ms press delivers far less than
+ * 700ms of fill and the piece never clicks down — which is a flaky test, not a
+ * bug. Pass untilFilled to hold until it seats, or releaseAt to let go partway.
+ */
+async function pressAndHold(page, { untilFilled = false, releaseAt = null, maxMs = 8000 }) {
+  return page.evaluate(async ({ untilFilled, releaseAt, maxMs }) => {
+    const m = window.__mew;
+    const el = document.querySelector('#handles .hold');
+    if (!el) return { error: 'no press ring is showing' };
+
+    const owner = Object.values(m.RT).find(rt => rt.holdEl === el);
+    const id = owner && owner.def.id;
+    const r = el.getBoundingClientRect();
+    const x = r.left + r.width / 2, y = r.top + r.height / 2;
+    const fire = (type) => el.dispatchEvent(new PointerEvent(type, {
+      pointerId: 9, bubbles: true, cancelable: true,
+      clientX: x, clientY: y, pointerType: 'mouse', isPrimary: true,
+    }));
+    const fill = () => (owner && owner.hold ? owner.hold.p : 1);   // hold goes once it seats
+
+    /* Check once per animation frame, not on a timer. A setTimeout can be delayed
+       for hundreds of milliseconds under load, and the ring fills in 0.45s — long
+       enough to sail past the release point and reach the top. Per-frame polling
+       can only ever overshoot by one frame's worth of fill. */
+    const nextFrame = () => new Promise(res => requestAnimationFrame(res));
+    fire('pointerdown');
+    const started = performance.now();
+    let peak = 0;
+    while (performance.now() - started < maxMs) {
+      await nextFrame();
+      peak = Math.max(peak, fill());
+      if (untilFilled && (!owner.hold || owner.hold.p >= 1)) break;
+      if (releaseAt !== null && fill() >= releaseAt) break;
+    }
+    const filledTo = owner && owner.hold ? +owner.hold.p.toFixed(2) : null;
+    fire('pointerup');
+    await new Promise(res => setTimeout(res, 1200));   // long enough for the ring to drain
+
+    return {
+      id,
+      filledTo,                                        // null once the piece has seated
+      peak: +peak.toFixed(2),
+      after: owner && owner.hold ? +owner.hold.p.toFixed(2) : null,
+      seated: !!(id && m.BS.done.has(id)),
+      state: owner ? owner.state : null,
+      ringsLeft: document.querySelectorAll('#handles .hold').length,
+      timedOut: performance.now() - started >= maxMs,
+    };
+  }, { untilFilled, releaseAt, maxMs });
+}
+
 /** Reload the page as if the player closed the app and came back. */
 async function reopenKit(page) {
   await page.reload({ waitUntil: 'load' });
@@ -385,5 +440,5 @@ module.exports = {
   KIT_URL, PHONE_LANDSCAPE, openKit, openBoxAndLayOut,
   pieceScreenPos, nextPieceId, emptyStagePoint, suspendToolWheel, advance,
   buildWholeKit, sceneCost, enterShowcase, visiblePartIds, reopenKit,
-  dragPieceHome, swirlScrew, toGlueStep, seamStroke,
+  dragPieceHome, swirlScrew, toGlueStep, seamStroke, pressAndHold,
 };
