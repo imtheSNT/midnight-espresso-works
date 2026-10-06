@@ -8520,6 +8520,13 @@ function cafePart(n, name, group, key, styles, colors, spots, more = {}) {
 }
 
 const CAFE_DEFS = [
+  /* The rug lays first. It sits at [-8.7, 5.3, -4.7], the same corner as the
+     dining table and the chairs that stand on it, so furnishing in the old
+     order meant sliding a rug underneath furniture that was already down.
+     Its id is still c15 -- cafePart() builds the id from that first argument,
+     not from the position -- so saved kits are unaffected. */
+  cafePart(15, 'Rug', 'Rugs, cushions and hangings', 'rug', [['Striped', 'striped'], ['Round', 'round'], ['Persian', 'persian']],
+    [C_TEAL, C_OXBLOOD, C_MUSTARD, C_NAVY], [[-8.7, 5.3, -4.7, 0]]),
   cafePart(1, 'Dining chair', 'Seating', 'chair', [['Bistro', 'bistro'], ['Ladder-back', 'ladder'], ['Tulip', 'tulip']],
     [C_WALNUT, C_TEAL, C_CREAM, C_INK], [[-7.95, 5.3, -5.35, -HALF], [-7.95, 5.3, -4.05, -HALF]], { twin: 'Dining chair, second' }),
   cafePart(2, 'Counter stool', 'Seating', 'stool', [['Round', 'round'], ['Swivel', 'swivel'], ['Backed', 'backed']],
@@ -8550,8 +8557,6 @@ const CAFE_DEFS = [
     [C_TEAL, C_CREAM, C_COPPER, C_INK], [[-9.3, 6.8, -4.7, 0]], { def: { after: ['c05'] } }),
   cafePart(14, 'Shelf basket', 'Plants, flowers and baskets', 'basket', [['Woven', 'woven'], ['Bread', 'bread'], ['Crate', 'crate']],
     [C_NATURAL, C_WALNUT, C_SAGE, C_CREAM], [[-11.3, 8.6, 1.4, HALF], [-11.3, 9.8, 3.0, HALF]], { twin: 'Shelf basket, second', def: { after: ['c07'] } }),
-  cafePart(15, 'Rug', 'Rugs, cushions and hangings', 'rug', [['Striped', 'striped'], ['Round', 'round'], ['Persian', 'persian']],
-    [C_TEAL, C_OXBLOOD, C_MUSTARD, C_NAVY], [[-8.7, 5.3, -4.7, 0]]),
   cafePart(16, 'Booth cushion', 'Rugs, cushions and hangings', 'cushion', [['Square', 'square'], ['Round', 'round'], ['Bolster', 'bolster']],
     [C_MUSTARD, C_BLUSH, C_TEAL, C_CREAM], [[-11.12, 6.2, -5.9, HALF, -0.22], [-11.12, 6.2, -3.5, HALF, -0.22]], { twin: 'Booth cushion, second', def: { after: ['c03'] } }),
   cafePart(17, 'Wall hanging', 'Rugs, cushions and hangings', 'hanging', [['Cup print', 'cupprint'], ['Macramé', 'macrame'], ['Tapestry', 'tapestry']],
@@ -8784,7 +8789,16 @@ function setupBench() {
     A.home.set(BX - c.x, 0.02 - bb.min.y, BZ - c.z);
     A.size = Math.max(sz.x, sz.y, sz.z);
     const bc = new T.Vector3(BX, sz.y / 2, BZ);
-    A.benchView = { target: [BX, sz.y / 2 + 0.2, BZ], theta: 0.45, phi: 0.95, fit: Math.max(4.2, A.size * 0.72 + 1.3) };
+    /* Frame the bench AND the parts waiting for it. A tight fit on the
+       sub-assembly alone put the loose pieces at x=-360 on a 1024-wide screen
+       -- entirely off it -- so every piece meant dragging the view back to the
+       table and forward again. The bench sits at z=2 and the parts area starts
+       at TABLE_Z0, so the shot has to span that gap. */
+    const bMid = new T.Vector3(BX, sz.y / 2 + 0.2, BZ);
+    const partsNear = new T.Vector3((TABLE_X0 + BX) / 2, 0.5, TABLE_Z0 + 6);
+    const bothMid = bMid.clone().add(partsNear).multiplyScalar(0.5);
+    A.benchView = { target: bothMid.toArray(), theta: 0.45, phi: 0.95,
+      fit: Math.max(4.2, A.size * 0.72 + 1.3, bMid.distanceTo(partsNear) * 0.9 + 6) };
     const mid = bc.clone().add(c).multiplyScalar(0.5);
     A.installView = { target: mid.toArray(), theta: 0.3, phi: 0.98, fit: Math.max(8, bc.distanceTo(c) * 0.62 + A.size * 0.45) };
     A.members.forEach(id => {
