@@ -806,6 +806,78 @@ test.describe('working at the bench', () => {
 });
 
 /* ------------------------------------------------------------------ *
+ * Window glass. Marcus's aunt asked for a way to tint it. Every pane in
+ * the kit shares one material, so it is a single choice, the way a real
+ * kit ships one colour of acrylic in the box.
+ * ------------------------------------------------------------------ */
+test.describe('tinting the window glass', () => {
+  /** The live material behind the panes, read off a real pane piece. */
+  const readGlass = (page) => page.evaluate(() => {
+    const m = window.__mew;
+    const paneIds = Object.keys(m.RT).filter(id => /pane/i.test(m.RT[id].def.name || ''));
+    for (const id of paneIds) {
+      let found = null;
+      m.RT[id].g.traverse(o => { if (!found && o.isMesh && o.material && o.material.transparent && o.material.opacity < 0.6) found = o.material; });
+      if (found) return { panes: paneIds.length, color: '#' + found.color.getHexString(), opacity: +found.opacity.toFixed(3) };
+    }
+    return null;
+  });
+
+  test('a tint reaches every pane, and clear comes back', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    const start = await readGlass(page);
+    expect(start, 'found no translucent pane to read').toBeTruthy();
+    expect(start.panes, 'expected the kit to have several panes sharing the glass').toBeGreaterThan(1);
+    expect(await page.evaluate(() => window.__mew.BS.glass || 0), 'a fresh kit should start clear').toBe(0);
+
+    const tinted = await page.evaluate(async () => {
+      const m = window.__mew;
+      m.Build.setGlass(2);
+      return { glass: m.BS.glass, name: m.GLASS_TINTS[2][0] };
+    });
+    const after = await readGlass(page);
+    expect(tinted.glass, 'the tint was not recorded').toBe(2);
+    expect(after.color, 'the panes kept the clear colour after a tint was chosen').not.toBe(start.color);
+    expect(after.opacity, 'a tint should carry its own body').not.toBe(start.opacity);
+
+    await page.evaluate(() => window.__mew.Build.setGlass(0));
+    const back = await readGlass(page);
+    expect(back.color, 'clear did not restore the original glass').toBe(start.color);
+    expect(back.opacity, 'clear did not restore the original opacity').toBe(start.opacity);
+  });
+
+  test('the chosen tint survives closing the app', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+    await page.evaluate(() => window.__mew.Build.setGlass(3));
+    const chosen = await readGlass(page);
+
+    await reopenKit(page);
+    const after = await page.evaluate(() => window.__mew.BS.glass);
+    const mat = await readGlass(page);
+    expect(after, 'the glass tint was forgotten when the kit was reopened').toBe(3);
+    expect(mat.color, 'the tint was remembered but not applied to the panes on load').toBe(chosen.color);
+  });
+
+  test('every tint has a swatch to pick it', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+    const n = await page.evaluate(() => {
+      const m = window.__mew;
+      // build the panel markup directly: it only renders once decor exists
+      const html = m.UI.decorHTML(true);
+      const d = document.createElement('div'); d.innerHTML = html;
+      return { swatches: d.querySelectorAll('[data-glass]').length, tints: m.GLASS_TINTS.length,
+               named: !!d.querySelector('[data-cname="glass"]') };
+    });
+    expect(n.swatches, 'the glass row does not offer one swatch per tint').toBe(n.tints);
+    expect(n.named, 'the chosen tint is not named anywhere in the panel').toBe(true);
+  });
+});
+
+/* ------------------------------------------------------------------ *
  * Furnishing order. Marcus's aunt: "furnish part rug should go down
  * before table".
  * ------------------------------------------------------------------ */
