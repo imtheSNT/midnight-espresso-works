@@ -967,6 +967,104 @@ test.describe('the long game', () => {
  * sends it back to the start. Both halves are tested, because a strip
  * rule that never fires is the same as no strip rule.
  * ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ *
+ * A hand holding a stylus rests on the glass, and iPadOS reports that
+ * as an ordinary touch. Marcus's aunt, step 9: "when you attempt to grab
+ * the foot plate it won't let you ... the apple pencil is grabbing onto
+ * the wrong piece, even when you're grabbing the correct piece."
+ * ------------------------------------------------------------------ */
+test.describe('a palm on the glass', () => {
+  test.use({ hasTouch: true });
+
+  const toElevator = (page) => page.evaluate(() => {
+    const m = window.__mew;
+    const tick = (n) => { for (let i = 0; i < n; i++) m.tick(1 / 60); };
+    for (let s = 0; s < 8; s++) {
+      let id;
+      while ((id = m.strictNext())) { m.finishInstant(id); tick(2); }
+      if (m.STEPS[m.BS.step].wire && !m.BS.wired) m.Wire.finish(true);
+      m.Build.nextStep(); tick(2);
+    }
+    tick(90);
+    return { step: m.BS.step, title: m.STEPS[m.BS.step].title, want: m.strictNext() };
+  });
+
+  test('does not steal the piece the pencil is reaching for', async ({ page }) => {
+    test.setTimeout(200_000);
+    await openKit(page, { viewport: { width: 1024, height: 768 } });
+    await openBoxAndLayOut(page);
+    const at = await toElevator(page);
+    expect(at.title, 'did not reach the bucket elevator step').toMatch(/elevator/i);
+    expect(at.want, 'the foot plate is not the piece the manual wants here').toBe('e01');
+
+    const spot = await page.evaluate(() => {
+      const m = window.__mew, T = window.THREE;
+      const r = document.querySelector('canvas').getBoundingClientRect();
+      const c = new T.Box3().setFromObject(m.TABLE.clones[m.strictNext()]).getCenter(new T.Vector3());
+      const p = c.clone().project(m.camera);
+      return { x: Math.round(r.left + (p.x * 0.5 + 0.5) * r.width), y: Math.round(r.top + (-p.y * 0.5 + 0.5) * r.height),
+               palmX: Math.round(r.left + r.width * 0.72), palmY: Math.round(r.top + r.height * 0.82) };
+    });
+
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts });
+    const pen = (type, x, y) => cdp.send('Input.dispatchMouseEvent', {
+      type, x, y, button: type === 'mouseMoved' ? 'none' : 'left',
+      buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1, pointerType: 'pen', force: 0.5 });
+
+    // one clean grab first, which is also what tells the kit a stylus is in use
+    await pen('mousePressed', spot.x, spot.y);
+    await pen('mouseMoved', spot.x + 3, spot.y - 3);
+    const clean = await page.evaluate(() => { const d = window.__mew.BS.drag; return d && d.id; });
+    await pen('mouseReleased', spot.x + 3, spot.y - 3);
+    await advance(page, 0.4);
+    expect(clean, 'the pencil could not pick the foot plate up even on its own').toBe('e01');
+
+    await page.evaluate(() => { const m = window.__mew; m.BS.pick = null; m.BS.drag = null; });
+    const before = await page.evaluate(() => ({ theta: window.__mew.view.theta, target: window.__mew.view.target.toArray() }));
+
+    // now the heel of her hand lands first, as it does when you hold a pencil
+    await touch('touchStart', [{ x: spot.palmX, y: spot.palmY, id: 7, radiusX: 28, radiusY: 24 }]);
+    await page.waitForTimeout(60);
+    const afterPalm = await page.evaluate(() => ({
+      pointers: window.__mew.ctrl.pointers.size, mode: window.__mew.ctrl.mode,
+      theta: window.__mew.view.theta, target: window.__mew.view.target.toArray(),
+    }));
+    expect(afterPalm.pointers, 'the palm was taken as a real pointer').toBe(0);
+    expect(Math.abs(afterPalm.theta - before.theta), 'the palm turned the view').toBeLessThan(0.001);
+
+    await pen('mousePressed', spot.x, spot.y);
+    await pen('mouseMoved', spot.x + 3, spot.y - 3);
+    const held = await page.evaluate(() => { const m = window.__mew; const d = m.BS.drag; return { id: d && d.id, mode: m.ctrl.mode }; });
+    await pen('mouseReleased', spot.x + 3, spot.y - 3);
+    await touch('touchEnd', []);
+
+    expect(held.mode, 'the palm and the pencil together put the view into a pinch').not.toBe('pinch');
+    expect(held.id, 'with a palm down the pencil grabbed a different piece').toBe('e01');
+  });
+
+  test('two fingers still pinch when no stylus is involved', async ({ page }) => {
+    test.setTimeout(200_000);
+    await openKit(page, { viewport: { width: 1024, height: 768 } });
+    await openBoxAndLayOut(page);
+
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts });
+    const r = await page.evaluate(() => {
+      const b = document.querySelector('canvas').getBoundingClientRect();
+      return { cx: b.left + b.width / 2, cy: b.top + b.height / 2 };
+    });
+
+    await touch('touchStart', [{ x: r.cx - 60, y: r.cy, id: 1 }, { x: r.cx + 60, y: r.cy, id: 2 }]);
+    await page.waitForTimeout(30);
+    const mode = await page.evaluate(() => ({ mode: window.__mew.ctrl.mode, pointers: window.__mew.ctrl.pointers.size }));
+    await touch('touchEnd', []);
+
+    expect(mode.pointers, 'two fingers were not both seen').toBe(2);
+    expect(mode.mode, 'palm rejection broke ordinary two-finger pinch').toBe('pinch');
+  });
+});
+
 test.describe('the tools', () => {
   /** Finish step 0 and move to the first step whose pieces are screwed down. */
   const toScrewStep = async (page) => page.evaluate(() => {
