@@ -309,6 +309,54 @@ test.describe('camera', () => {
       .toBeGreaterThan(0.05);
   });
 
+  /* Marcus's aunt, on an iPad, step 7: "the camera zooms into the side area and
+     you are unable to see the parts to put down, you have to move the camera back
+     each time". Picking a module piece re-framed its bench on every pick, because
+     once she had moved away, every pick counted as "far" from the bench view and
+     re-triggered the move. */
+  test('a view the player set is not taken back by the next piece', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    const r = await page.evaluate(() => {
+      const m = window.__mew;
+      const tick = (n) => { for (let i = 0; i < n; i++) m.tick(1 / 60); };
+      const brew = m.STEPS.findIndex(s => s.title && /brew/i.test(s.title));
+      for (let s = 0; s < brew; s++) {
+        let id;
+        while ((id = m.strictNext())) { m.finishInstant(id); tick(2); }
+        if (m.STEPS[m.BS.step].wire && !m.BS.wired) m.Wire.finish(true);
+        m.Build.nextStep(); tick(2);
+      }
+      const parts = m.STEPS[m.BS.step].parts;
+      const snap = () => ({ theta: m.view.theta, target: m.view.target.toArray() });
+      const dist = (p, q) => Math.abs(p.theta - q.theta) + Math.hypot(...p.target.map((v, i) => v - q.target[i]));
+
+      /* First pick: the game frames the bench. That is wanted — she is not
+         complaining about the first one. */
+      m.BS.pick = parts[0];
+      const a0 = snap(); m.benchFocus(); tick(90);
+      const a1 = snap();
+
+      /* She then drags the view somewhere she can see the loose parts. */
+      m.ctrl.userAt = performance.now();
+      m.view.theta += 1.0; m.view.target.x += 4;
+      const a2 = snap();
+
+      /* Next piece. This is the one that used to snatch the view back. */
+      m.BS.pick = parts[1];
+      m.benchFocus(); tick(90);
+      const a3 = snap();
+
+      return { step: m.BS.step, title: m.STEPS[m.BS.step].title,
+               framedFirst: dist(a0, a1), heldAfter: dist(a2, a3) };
+    });
+
+    expect(r.title, 'did not reach the brew step').toMatch(/brew/i);
+    expect(r.framedFirst, 'the first pick no longer frames the bench at all').toBeGreaterThan(0.05);
+    expect(r.heldAfter, 'picking the next piece took back the view the player set').toBeLessThan(0.01);
+  });
+
   test('the view never flips under or over the model', async ({ page }) => {
     await openKit(page);
     await openBoxAndLayOut(page);
