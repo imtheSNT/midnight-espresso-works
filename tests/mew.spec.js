@@ -282,6 +282,43 @@ test.describe('the wiring board', () => {
 /* ------------------------------------------------------------------ *
  * Camera — the thing that stopped Marcus's aunt cold on an iPad.
  * ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ *
+ * Taps on the controls layered over the stage. The stage itself sets
+ * touch-action:none because the canvas handles every gesture; a button
+ * inheriting that is a misconfiguration, and the decor panel and booklet
+ * already opt out of it. The tool rail did not.
+ * ------------------------------------------------------------------ */
+test.describe('controls over the stage', () => {
+  test('are tappable, while the canvas still owns its gestures', async ({ page }) => {
+    await openKit(page, { viewport: { width: 1024, height: 768 } });
+    await openBoxAndLayOut(page);
+
+    const ta = await page.evaluate(() => {
+      const get = (sel) => { const el = document.querySelector(sel); return el ? getComputedStyle(el).touchAction : null; };
+      return { stage: get('#stage'), tool: get('#tools .tool'), decorAlreadyOptedOut: true };
+    });
+    expect(ta.stage, 'the canvas must keep touch-action none or a drag scrolls the page').toBe('none');
+    /* This asserts the declaration, not iOS behaviour, which cannot be exercised
+       here. It keeps the rail in line with the decor panel and the booklet,
+       which already declare it. */
+    expect(ta.tool, 'the tool rail no longer declares a tappable touch-action, unlike the other in-stage controls').toBe('manipulation');
+
+    // and it really does still select, driven as a stylus
+    const pen = await penPointer(page);
+    const t = await page.evaluate(() => {
+      const b = [...document.querySelectorAll('#tools .tool')].find(x => x.dataset.tool !== window.__mew.BS.tool);
+      const r = b.getBoundingClientRect();
+      return { tool: b.dataset.tool, x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    await pen.press(t.x, t.y);
+    await pen.release(t.x, t.y);
+    await advance(page, 0.2);
+    await page.waitForTimeout(150);
+    expect(await page.evaluate(() => window.__mew.BS.tool),
+      'a pencil tap on the rail did not change the tool').toBe(t.tool);
+  });
+});
+
 test.describe('camera', () => {
   test('a finger drag turns the model', async ({ page }) => {
     await openKit(page);
