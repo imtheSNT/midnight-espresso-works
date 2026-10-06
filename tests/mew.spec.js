@@ -4,7 +4,7 @@ const {
   PHONE_LANDSCAPE, openKit, openBoxAndLayOut, pieceScreenPos, nextPieceId,
   emptyStagePoint, suspendToolWheel, advance, buildWholeKit, sceneCost,
   enterShowcase, visiblePartIds, reopenKit, dragPieceHome, swirlScrew,
-  toGlueStep, seamStroke, pressAndHold,
+  toGlueStep, seamStroke, pressAndHold, penPointer,
 } = require('./helpers');
 
 /* ------------------------------------------------------------------ *
@@ -445,6 +445,85 @@ test.describe('tool wheel', () => {
  * job — batch or instance the new geometry, or raise the ceiling on
  * purpose with a note saying why.
  */
+/* ------------------------------------------------------------------ *
+ * The tool wheel on a stylus. Marcus's aunt, iPad + Apple Pencil:
+ * "radial menu should be able to stay open and be tapped to select".
+ * ------------------------------------------------------------------ */
+test.describe('the tool wheel on a pencil', () => {
+  test('opens near an edge without choosing anything, and waits to be tapped', async ({ page }) => {
+    await openKit(page, { viewport: PHONE_LANDSCAPE });
+    await openBoxAndLayOut(page);
+    const pen = await penPointer(page);
+
+    /* Press high on the stage, where the drawn wheel has to be pushed down to
+       fit. That gap between the press and the drawn centre is what used to be
+       read as a chosen tool. */
+    const r = await page.evaluate(() => {
+      const b = document.querySelector('canvas').getBoundingClientRect();
+      return { left: b.left, top: b.top, w: b.width };
+    });
+    const px = r.left + r.w / 2, py = r.top + 34;
+
+    const before = await page.evaluate(() => window.__mew.BS.tool);
+    await pen.press(px, py);
+    await page.waitForTimeout(640);
+    /* Nudge the tip a few pixels now that the wheel is up. This is inside the
+       34px dead zone around the press, so nothing should light up -- but the
+       wheel is drawn well away from the finger here, and measuring against the
+       drawn centre instead of the press turns this nudge into a chosen tool.
+       Sent after the wheel is open, so it cannot race the long-press timer. */
+    await pen.move(px + 6, py + 4);
+    await page.waitForTimeout(40);
+
+    const held = await page.evaluate(() => ({
+      open: window.__mew.Wheel.open, hot: window.__mew.Wheel.hot,
+      offset: Math.round(Math.hypot(window.__mew.Wheel.cx - window.__mew.Wheel.px,
+                                    window.__mew.Wheel.cy - window.__mew.Wheel.py)),
+    }));
+    expect(held.open, 'a pencil hold did not open the wheel').toBe(true);
+    expect(held.offset, 'this press was not near enough an edge to displace the wheel').toBeGreaterThan(20);
+    expect(held.hot, 'the wheel pre-selected a tool the player never pointed at').toBe(null);
+
+    await pen.release(px + 9, py + 3);
+    await advance(page, 0.3);
+    const after = await page.evaluate(() => ({ open: window.__mew.Wheel.open, tool: window.__mew.BS.tool }));
+    expect(after.open, 'the wheel closed instead of staying open to be tapped').toBe(true);
+    expect(after.tool, 'letting go picked a tool the player never chose').toBe(before);
+
+    // and now a tap on one of its buttons does choose
+    const btn = await page.evaluate(() => {
+      const bs = [...document.querySelectorAll('#wheel .wheel-btn')];
+      const b = bs.find(x => x.dataset.tool !== window.__mew.BS.tool);
+      const q = b.getBoundingClientRect();
+      return { tool: b.dataset.tool, x: q.left + q.width / 2, y: q.top + q.height / 2 };
+    });
+    await page.waitForTimeout(260);        // let the wheel finish opening
+    await pen.press(btn.x, btn.y);
+    await pen.release(btn.x, btn.y);
+    await advance(page, 0.3);
+    const picked = await page.evaluate(() => ({ open: window.__mew.Wheel.open, tool: window.__mew.BS.tool }));
+    expect(picked.tool, 'tapping a tool on the open wheel did not select it').toBe(btn.tool);
+    expect(picked.open, 'the wheel stayed open after a tool was tapped').toBe(false);
+  });
+
+  /* The hold tolerance is asserted directly rather than by holding a stylus
+     still for 430ms and seeing what happens: CDP's input latency here is larger
+     than that window, so a drift-based test passes or fails by machine load.
+     What matters is the rule — a stylus and a fingertip are allowed more drift
+     than a mouse, which rests exactly where it was put. */
+  test('a stylus is allowed more drift during the hold than a mouse', async ({ page }) => {
+    await openKit(page);
+    const slop = await page.evaluate(() => {
+      const m = window.__mew, was = m.ctrl.type, out = {};
+      for (const t of ['mouse', 'pen', 'touch']) { m.ctrl.type = t; out[t] = m.wheelSlop(); }
+      m.ctrl.type = was;
+      return out;
+    });
+    expect(slop.pen, 'a pencil gets no more drift allowance than a mouse').toBeGreaterThan(slop.mouse);
+    expect(slop.touch, 'a fingertip gets no more drift allowance than a mouse').toBeGreaterThan(slop.mouse);
+  });
+});
+
 test.describe('rendering budget', () => {
   test.use({ viewport: PHONE_LANDSCAPE, hasTouch: true });
 

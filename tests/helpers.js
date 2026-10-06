@@ -436,9 +436,47 @@ async function advance(page, seconds = 1.5) {
   }, seconds);
 }
 
+
+/**
+ * A stylus. Playwright's mouse always reports pointerType "mouse", and several
+ * of the kit's paths branch on it — the orbit deadzone, the wheel's hold
+ * tolerance, the proximity grab for table pieces — so a mouse cannot stand in
+ * for an Apple Pencil. CDP can set pointerType, so this drives real pen events.
+ */
+async function penPointer(page) {
+  const cdp = await page.context().newCDPSession(page);
+  const send = (type, x, y) => cdp.send('Input.dispatchMouseEvent', {
+    type, x, y,
+    button: type === 'mouseMoved' ? 'none' : 'left',
+    buttons: type === 'mouseReleased' ? 0 : 1,
+    clickCount: 1, pointerType: 'pen', force: 0.5,
+  });
+  return {
+    press: (x, y) => send('mousePressed', x, y),
+    move: (x, y) => send('mouseMoved', x, y),
+    release: (x, y) => send('mouseReleased', x, y),
+    /**
+     * A hand is never perfectly still on glass: drift during a hold.
+     *
+     * Careful what you assert with this. Anything that depends on the drift
+     * landing before the wheel's 430ms long-press timer is a race this harness
+     * cannot win reliably: CDP's input round-trip here is itself of that order,
+     * so the same test passes or fails by machine load. Front-loading the drift
+     * does not fix it — measured both ways, both flaked. Send moves AFTER the
+     * state you are testing is established, or assert the rule directly.
+     */
+    async wobble(x, y, px = 13) {
+      for (const d of [0.3, 0.7, 1, 0.85]) {
+        await send('mouseMoved', x + Math.round(px * d), y + Math.round(px * d * 0.35));
+        await page.waitForTimeout(12);
+      }
+    },
+  };
+}
+
 module.exports = {
   KIT_URL, PHONE_LANDSCAPE, openKit, openBoxAndLayOut,
   pieceScreenPos, nextPieceId, emptyStagePoint, suspendToolWheel, advance,
   buildWholeKit, sceneCost, enterShowcase, visiblePartIds, reopenKit,
-  dragPieceHome, swirlScrew, toGlueStep, seamStroke, pressAndHold,
+  dragPieceHome, swirlScrew, toGlueStep, seamStroke, pressAndHold, penPointer,
 };
