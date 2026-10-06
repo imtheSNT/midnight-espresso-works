@@ -9713,11 +9713,43 @@ function onPD(e) {
      lie right over the seam: on the veneer fascia only 1 of its 82 seam points was reachable.
      The wrap pieces are traced with the hand, which is also the pick-up tool, so they keep the
      old order and pick up as before. */
+  /* Palm rejection. A hand holding a stylus rests on the glass, and iPadOS
+     reports that as an ordinary touch pointer. Without this, the palm lands
+     first, so by the time the pen reaches a piece ctrl.pointers is not empty:
+     the pick-up below never runs and two pointers put the view into pinch
+     instead. Measured before this existed -- palm down, then pen on the foot
+     plate at step 9: pick null, drag false, mode "pinch". The piece could not
+     be picked up at all, which is exactly what Marcus's aunt hit. A resting
+     palm also sat still long enough to open the tool wheel.
+     The pen is the deliberate instrument, so when one arrives the touches are
+     dropped, and touches that arrive while a pen is down are ignored. Two
+     fingers with no pen still pinch exactly as before. */
+  if (e.pointerType === 'pen') {
+    for (const [id, p] of ctrl.pointers) if (p.type !== 'pen') { ctrl.pointers.delete(id); try { canvas.releasePointerCapture(id); } catch (err) { /* already gone */ } }
+    if (ctrl.pointers.size === 0 && ctrl.mode !== 'brush') { clearTimeout(ctrl.lp); if (Wheel.open) Wheel.close(); ctrl.mode = null; }
+    ctrl.penSeen = performance.now();
+  } else if ([...ctrl.pointers.values()].some(p => p.type === 'pen')) {
+    return;   /* a palm or stray finger while the pen is working */
+  } else if (e.pointerType === 'touch' &&
+             (performance.now() - (ctrl.penSeen || -1e9) < 1500 ||
+              Math.max(e.width || 0, e.height || 0) >= 35)) {
+    /* The palm lands BEFORE the pen does, so dropping touches once the pen
+       arrives is too late: the palm has already orbited the view, and the pen
+       then hits whatever slid under the player's aim. Measured at step 9 --
+       palm down, then pen on the foot plate -- the drag came back holding
+       e03, a tower post, which is precisely "grabbing onto the wrong piece,
+       even when you're grabbing the correct piece".
+       So a touch is ignored if the stylus was in use a moment ago, or if its
+       contact patch is palm-sized. A kit built entirely with fingers never
+       sets penSeen and is untouched by this. */
+    return;
+  }
+
   const brushFirst = BS.tool === 'glue' && Build.wantsBrush(e);
   if (!brushFirst && ctrl.pointers.size === 0 && tableDown(e)) return;   /* a piece picked up off the table */
   if (Wheel.open) Wheel.close();
   canvas.setPointerCapture(e.pointerId);
-  ctrl.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button });
+  ctrl.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button, type: e.pointerType || 'mouse' });
   viewTween = null; ctrl.spin = 0;
   ctrl.vTheta = ctrl.vPhi = 0;
   if (ctrl.pointers.size === 1) {
