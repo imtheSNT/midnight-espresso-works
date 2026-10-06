@@ -8839,8 +8839,8 @@ function focusPart(rt) {
   const a = rt.def.bench || rt.def.install;
   if (a && ASM[a]) {
     const key = (rt.def.install ? 'i:' : 'b:') + a;
-    if (key !== benchKey) { benchKey = key; goView(rt.def.install ? ASM[a].installView : ASM[a].benchView, 0.8); }
-  } else if (benchKey) { benchKey = null; goView(stepView(), 0.8); }
+    if (key !== benchKey) { benchKey = key; goView(rt.def.install ? ASM[a].installView : ASM[a].benchView, 0.8, ADVISORY); }
+  } else if (benchKey) { benchKey = null; goView(stepView(), 0.8, ADVISORY); }
 }
 function benchFocus() {
   benchMark();
@@ -8848,10 +8848,12 @@ function benchFocus() {
   const rt = BS.pick && RT[BS.pick] && isAvailable(BS.pick) ? RT[BS.pick] : suggestedPart();
   const a = rt && (rt.def.bench || rt.def.install);
   const key = a ? (rt.def.install ? 'i:' : 'b:') + a : null;
-  if (!key) { if (benchKey) { benchKey = null; goView(stepView(), 0.9); } return; }
+  if (!key) { if (benchKey) { benchKey = null; goView(stepView(), 0.9, ADVISORY); } return; }
   const v = rt.def.install ? ASM[a].installView : ASM[a].benchView;
   const far = view.target.distanceTo(_w1.set(v.target[0], v.target[1], v.target[2])) > 0.6;
-  if (key !== benchKey || (far && !(viewTween && viewTween.to && viewTween.to.t.distanceTo(_w1) < 0.6))) { benchKey = key; goView(v, 0.9); }
+  /* `far` is what kept dragging the view back: once the player had moved away
+     from the bench, every pick counted as far and re-framed it. Advisory now. */
+  if (key !== benchKey || (far && !(viewTween && viewTween.to && viewTween.to.t.distanceTo(_w1) < 0.6))) { benchKey = key; goView(v, 0.9, ADVISORY); }
 }
 
 /* ---------- brew module pieces ---------- */
@@ -9592,7 +9594,10 @@ function applyView() {
     view.target.z + view.radius * sp * Math.cos(view.theta));
   camera.lookAt(view.target);
 }
-function goView(v, dur = 1.0) {
+/* advisory: a helpful reframing the player did not ask for. Those are skipped
+   while the player is driving the camera; moves they asked for are not. */
+function goView(v, dur = 1.0, opts) {
+  if (opts && opts.advisory && userDrivingCamera()) return;
   let theta = v.theta, d = theta - view.theta;
   d = Math.atan2(Math.sin(d), Math.cos(d));
   theta = view.theta + d;
@@ -9642,7 +9647,13 @@ const DEADZONE = { mouse: 2, pen: 5, touch: 7 };
 /* pointer controls: orbit (1 finger / left mouse), pinch-zoom + pan + twist (2 fingers), right-drag pan, wheel zoom,
    press-and-hold (touch / pencil) opens the tool wheel */
 const ctrl = { pointers: new Map(), mode: null, last: null, pinch: 0, mid: null, ang: 0, twist: 0, vTheta: 0, vPhi: 0,
-  lastT: 0, downAt: 0, downX: 0, downY: 0, moved: 0, type: 'mouse', armed: false, lp: 0, lpMs: 430, spin: 0 };
+  lastT: 0, downAt: 0, downX: 0, downY: 0, moved: 0, type: 'mouse', armed: false, lp: 0, lpMs: 430, spin: 0,
+  /* When the player last moved the camera themselves. Advisory auto-moves yield
+     to it: on a tablet the bench and screw zooms kept stealing the view back and
+     the player had to drag it out again for every piece. */
+  userAt: 0 };
+function userDrivingCamera(ms = 45000) { return ctrl.userAt > 0 && performance.now() - ctrl.userAt < ms; }
+const ADVISORY = { advisory: true };
 function initControls() {
   canvas.addEventListener('pointerdown', onPD);
   canvas.addEventListener('pointermove', onPM);
@@ -9652,6 +9663,7 @@ function initControls() {
   canvas.addEventListener('wheel', e => {
     e.preventDefault();
     viewTween = null;
+    ctrl.userAt = performance.now();
     view.zoom = clamp(view.zoom * (1 + e.deltaY * 0.0012), 0.25, ENV.on ? 1.8 : 3.2);
   }, { passive: false });
   // stage drags belong to the model, never to page scrolling or a host view around the page
@@ -9714,6 +9726,7 @@ function onPM(e) {
     }
     const dx = e.clientX - ctrl.last.x, dy = e.clientY - ctrl.last.y;
     ctrl.last = { x: e.clientX, y: e.clientY };
+    if (dx || dy) ctrl.userAt = performance.now();
     if (ctrl.mode === 'orbit') {
       const k = orbitGain(ctrl.type), dT = -dx * k, dP = -dy * k;
       view.theta += dT; view.phi = clamp(view.phi + dP, 0.12, 1.5);
@@ -9725,6 +9738,7 @@ function onPM(e) {
   } else if (ctrl.mode === 'pinch' && ctrl.pointers.size >= 2) {
     const [p1, p2] = [...ctrl.pointers.values()];
     const d = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+    ctrl.userAt = performance.now();
     if (ctrl.pinch > 0) view.zoom = clamp(view.zoom * ctrl.pinch / Math.max(20, d), 0.25, ENV.on ? 1.8 : 3.2);
     ctrl.pinch = d;
     const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
@@ -10976,6 +10990,9 @@ const PHI_AB = -HALF_PI * 1.25 + Math.PI - Math.PI / 40;
 const PHI_BC = Math.PI - Math.PI / 48;
 const GEN_A = K.gC / Math.SQRT2;
 const MOTOR_RPS = 2.8; // sim motor speed at 1x
+/* Motor turns per turn of the output shaft. Written in two readouts; named here
+   so they cannot disagree with each other. */
+const GEAR_RATIO = 16;
 const SIM = {
   thetaM: 0, speed: 0, target: 0, mult: 1, powered: false, crank: false,
   kPrev: null, kBase: null, strokePrev: null, strokes: 0, served: 0, buffer: 0,
@@ -11970,7 +11987,7 @@ function afterLand(rt) {
     Sound.snap();
     rt.state = 'screws';
     rt.screws.forEach(s => { s.m.visible = true; s.appear = 0; s.prog = 0; s.turn = 0; s.tick = 0; s.done = false; s.auto = false; makeHandle(rt, s); });
-    goView(screwView(rt), 0.8);
+    goView(screwView(rt), 0.8, ADVISORY);
     rt.zoomed = true;
     afterChange();
   } };
@@ -11986,7 +12003,7 @@ function frameGlue() {
   const rt = glueTarget();
   if (!rt || rt.glueFramed || BS.show) return;
   rt.glueFramed = true; rt.zoomed = true;
-  goView(glueView(rt), 0.8);
+  goView(glueView(rt), 0.8, ADVISORY);
 }
 function screwView(rt) {
   const c = new T.Vector3();
@@ -12164,7 +12181,7 @@ function mergeStatic(rt) {
 }
 function partDone(rt, quiet, fx = true) {
   const id = rt.def.id;
-  if (rt.zoomed) { rt.zoomed = false; if (!quiet && !BS.show) goView(stepView(), 0.9); }
+  if (rt.zoomed) { rt.zoomed = false; if (!quiet && !BS.show) goView(stepView(), 0.9, ADVISORY); }
   rt.state = 'done'; rt.tw = null; rt.hold = null;
   rt.off.copy(rt.home); rt.g.position.copy(rt.home); rt.g.visible = true;
   rt.ghost.visible = false; setGhostMat(rt, false);
@@ -12466,6 +12483,9 @@ const Build = {
     if (BS.show || !stepComplete(BS.step) || BS.step >= STEPS.length - 1) return;
     BS.step++;
     BS.lastWanted = undefined;
+    /* A new step is a new context, so the game is allowed to frame it again
+       even if the player took the camera over during the last one. */
+    ctrl.userAt = 0;
     save();
     Sound.click();
     afterChange();
@@ -13320,7 +13340,7 @@ const UI = {
     const goal = window.MEW_GOALS && MEW_GOALS[BS.step] ? `<figure class="bk-goal collapsible"><img alt="The model when this step is done" src="${MEW_GOALS[BS.step]}"><figcaption>When this step is done</figcaption></figure>` : '';
     const lines = stepLines(st.text).map(t => `<li>${esc(t)}</li>`).join('');
     const crank = BS.step === 2 && stepComplete(2)
-      ? '<div class="crank-row collapsible"><p id="crank-out">Hold the crank to turn the train by hand.</p><button class="btn crank" id="btn-crank" type="button" aria-pressed="false">Hold to crank</button></div>'
+      ? '<div class="crank-row collapsible"><p id="crank-out">No power yet &mdash; hold the button to turn the gears by hand and watch them mesh.</p><button class="btn crank" id="btn-crank" type="button" aria-pressed="false">Hold to turn the gears</button></div>'
       : '';
     let btn = '';
     if (stepComplete(BS.step)) btn = BS.step === N - 1
@@ -13557,13 +13577,15 @@ const UI = {
       const rpm = SIM.speed * MOTOR_RPS * 60;
       set('ro-m', Math.round(rpm));
       set('ro-b', Math.round(rpm / 4));
-      set('ro-c', (rpm / 16).toFixed(1));
+      set('ro-c', (rpm / GEAR_RATIO).toFixed(1));
       set('ro-k', Math.max(0, (SIM.kPrev || 0) - (SIM.kBase || 0)));
       set('ro-p', SIM.strokes);
       set('ro-s', SIM.served);
     } else if (this.crank0 !== null) {
       const m = (SIM.thetaM - this.crank0) / TAU;
-      set('crank-out', `Motor ${m.toFixed(1)} turns, output shaft ${(m / 16).toFixed(2)} turns`);
+      /* Keep teaching while they crank: the numbers alone meant nothing to a
+         first-time player, and this line permanently replaces the explanation. */
+      set('crank-out', `You've turned the motor ${m.toFixed(1)} times; the output shaft has gone round ${(m / GEAR_RATIO).toFixed(2)}. The gears slow it ${GEAR_RATIO} to 1.`);
     }
   },
 };
