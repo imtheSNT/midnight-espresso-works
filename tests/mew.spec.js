@@ -506,6 +506,36 @@ test.describe('the tool wheel on a pencil', () => {
     expect(picked.open, 'the wheel stayed open after a tool was tapped').toBe(false);
   });
 
+  /* "radial menu still just shows screw instead of screwdriver." The wheel
+     builds its buttons by copying each tool's icon out of the rail, so the two
+     can only disagree if that copying breaks — which is worth pinning, since a
+     silent divergence means fixing an icon in one place and not the other.
+     The wheel is opened directly rather than by a gesture: the icons have
+     nothing to do with how it was summoned, and driving it by pointer made this
+     flake on whether the press found clear desk. */
+  test('every tool on the wheel wears the same icon as the rail', async ({ page }) => {
+    await openKit(page, { viewport: PHONE_LANDSCAPE });
+    await openBoxAndLayOut(page);
+
+    const icons = await page.evaluate(() => {
+      window.__mew.Wheel.show(200, 150);
+      const out = { open: window.__mew.Wheel.open, mismatched: [], checked: 0 };
+      for (const w of document.querySelectorAll('#wheel .wheel-btn')) {
+        const t = w.dataset.tool;
+        const rail = document.querySelector(`#tools .tool[data-tool="${t}"] svg`);
+        const ws = w.querySelector('svg');
+        out.checked++;
+        if (!rail || !ws || rail.innerHTML !== ws.innerHTML) out.mismatched.push(t);
+      }
+      window.__mew.Wheel.close();
+      return out;
+    });
+
+    expect(icons.open, 'the wheel did not open').toBe(true);
+    expect(icons.checked, 'the wheel had no buttons to check').toBeGreaterThan(0);
+    expect(icons.mismatched, 'these tools show a different icon on the wheel than on the rail').toEqual([]);
+  });
+
   /* The hold tolerance is asserted directly rather than by holding a stylus
      still for 430ms and seeing what happens: CDP's input latency here is larger
      than that window, so a drift-based test passes or fails by machine load.
