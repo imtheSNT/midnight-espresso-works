@@ -9643,6 +9643,13 @@ function setCamSpeed(sp) {
 }
 function orbitGain(type) { return 0.0056 * CAM_PRESETS[CAM.speed].gain * (type === 'pen' ? 0.7 : 1); }
 const DEADZONE = { mouse: 2, pen: 5, touch: 7 };
+/* How far the pointer may wander during the press-and-hold and still open the
+   wheel. A flat 10 was fine for a mouse, which rests exactly where you left it,
+   and far too tight for a stylus: an Apple Pencil held against glass for 430ms
+   drifts further than that in an ordinary hand, so the wheel kept refusing to
+   open. Scaled by pointer the same way the orbit deadzone already is. */
+const WHEEL_SLOP = { mouse: 10, pen: 18, touch: 22 };
+function wheelSlop() { return WHEEL_SLOP[ctrl.type] || 10; }
 
 /* pointer controls: orbit (1 finger / left mouse), pinch-zoom + pan + twist (2 fingers), right-drag pan, wheel zoom,
    press-and-hold (touch / pencil) opens the tool wheel */
@@ -9695,7 +9702,7 @@ function onPD(e) {
     clearTimeout(ctrl.lp);
     if (ctrl.type !== 'mouse' || e.button === 0) ctrl.lp = setTimeout(() => {
       /* never interrupt a glue stroke or a belt wrap: the wheel only opens from a plain camera drag */
-      if (ctrl.pointers.size !== 1 || ctrl.moved >= 10 || ctrl.mode !== 'orbit') return;
+      if (ctrl.pointers.size !== 1 || ctrl.moved >= wheelSlop() || ctrl.mode !== 'orbit') return;
       ctrl.mode = 'wheel';
       const r = stageRect();
       Wheel.show(ctrl.downX - r.left, ctrl.downY - r.top);
@@ -9716,7 +9723,7 @@ function onPM(e) {
   if (!p) { if (ctrl.mode === null) Build.brushHover(e); return; }
   p.x = e.clientX; p.y = e.clientY;
   ctrl.moved = Math.max(ctrl.moved, Math.hypot(e.clientX - ctrl.downX, e.clientY - ctrl.downY));
-  if (ctrl.moved >= 10) clearTimeout(ctrl.lp);
+  if (ctrl.moved >= wheelSlop()) clearTimeout(ctrl.lp);
   if (ctrl.mode === 'wheel') { Wheel.track(e); return; }
   if (ctrl.mode === 'orbit' || ctrl.mode === 'pan') {
     if (!ctrl.armed) {
@@ -12997,7 +13004,7 @@ const WHEEL_TOOLS = ['hand', 'glue', 'mallet', 'screw', 'wire'];
 const WHEEL_STEP = 360 / WHEEL_TOOLS.length;
 const WHEEL_LABEL = { mallet: 'Mallet', hand: 'Hand', glue: 'Glue', press: 'Press', screw: 'Screw', wire: 'Wire' };
 const Wheel = {
-  el: null, open: false, cx: 0, cy: 0, hot: null,
+  el: null, open: false, cx: 0, cy: 0, px: 0, py: 0, hot: null,
   init() {
     const el = document.createElement('div');
     el.id = 'wheel'; el.className = 'wheel'; el.hidden = true;
@@ -13014,6 +13021,15 @@ const Wheel = {
   },
   show(x, y) {
     const pad = 104;
+    /* Where the player actually pressed. The drawn wheel is pushed inside the
+       stage so it is not half off-screen, which on a landscape tablet moves it
+       a long way from the finger: the stage is ~346 tall, so cy is pinned to
+       [104, 242] and a press in the top or bottom third lands 60-70px from the
+       centre. track() used to measure against the drawn centre, so that offset
+       read as "already pointing at a tool" the instant the wheel appeared, and
+       lifting picked something the player never chose. Measure the gesture from
+       the press instead. */
+    this.px = x; this.py = y;
     this.cx = clamp(x, pad, Math.max(pad, stageW - pad));
     this.cy = clamp(y, pad, Math.max(pad, stageH - pad));
     const el = this.el;
@@ -13026,7 +13042,7 @@ const Wheel = {
     try { if (navigator.vibrate) navigator.vibrate(8); } catch (e) { /* no haptics */ }
   },
   track(e) {
-    const r = stageRect(), x = e.clientX - r.left - this.cx, y = e.clientY - r.top - this.cy;
+    const r = stageRect(), x = e.clientX - r.left - this.px, y = e.clientY - r.top - this.py;
     let hot = null;
     if (Math.hypot(x, y) > 34) {
       const a = Math.atan2(y, x) * 180 / Math.PI;
@@ -14570,7 +14586,7 @@ function boot() {
   // handle for automated checks of this test build
   hudInit();
   setTimeout(() => { if (!BS.show && BS.unboxed && !BS.boxing) coachShow(); }, 2200);
-  window.__mew = { pbookShow, strictNext, hudSync, coachShow, sheetShow, VOFF, CINE, IBL, cineReveal, cineTour, cineStop, cineUniforms, postRender, setAmbience, HERO_VIEW, tick: dt => { cineTick(dt); hudTick(dt); updateView(dt); Build.update(dt); envTick(dt); updateSim(dt); UI.update(dt); }, MOTES, STEAM, POST, postLook, toolDriver, get stageW() { return stageW; }, get stageH() { return stageH; }, TABLE, tableDown, stageTap, stepView, DM, MURAL, BOOK, bookRead, UI, TABLE, tableLayout, BOX, boxIntro, boxOpen, boxFinish, toolSwing, TOOLVIS, ENV, envShow, PIECE, Wheel, ctrl, ROOM, ROOM_VIEWS, enterRoom, exitRoom, roomView, GLOWS, LIGHTS3D, FEATURES, CAFE, ASM, benchFocus: () => benchFocus(), STEPS, WL, WX, WY, MECH, OWL, DM, ART_TEX, WHEEL_TOOLS, finishInstant, ctrl, Wheel, CAM, turnBy, get tween() { return viewTween; }, BS, RT, SIM, Build, UI, Wire, view, renderer, camera, scene, layers, goView };
+  window.__mew = { wheelSlop, WHEEL_SLOP, pbookShow, strictNext, hudSync, coachShow, sheetShow, VOFF, CINE, IBL, cineReveal, cineTour, cineStop, cineUniforms, postRender, setAmbience, HERO_VIEW, tick: dt => { cineTick(dt); hudTick(dt); updateView(dt); Build.update(dt); envTick(dt); updateSim(dt); UI.update(dt); }, MOTES, STEAM, POST, postLook, toolDriver, get stageW() { return stageW; }, get stageH() { return stageH; }, TABLE, tableDown, stageTap, stepView, DM, MURAL, BOOK, bookRead, UI, TABLE, tableLayout, BOX, boxIntro, boxOpen, boxFinish, toolSwing, TOOLVIS, ENV, envShow, PIECE, Wheel, ctrl, ROOM, ROOM_VIEWS, enterRoom, exitRoom, roomView, GLOWS, LIGHTS3D, FEATURES, CAFE, ASM, benchFocus: () => benchFocus(), STEPS, WL, WX, WY, MECH, OWL, DM, ART_TEX, WHEEL_TOOLS, finishInstant, ctrl, Wheel, CAM, turnBy, get tween() { return viewTween; }, BS, RT, SIM, Build, UI, Wire, view, renderer, camera, scene, layers, goView };
 }
 
 main();
