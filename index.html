@@ -11638,11 +11638,13 @@ function makeHandle(rt, s) {
     if (Math.abs(d) > 1.4) return;
     if (BS.diff === 'guided' && d < 0) d *= 0.35;
     sw.turned += Math.abs(d);
+    /* They have started turning it themselves — hand it back. */
+    if (s.auto && sw.turned > SCREW_TAP_TURN) s.auto = false;
     turnScrew(rt, s, d);
   });
   const end = e => {
     if (!sw) return;
-    const tap = sw.moved < 10 && sw.turned < 0.5;
+    const tap = sw.moved < 10 && sw.turned < SCREW_TAP_TURN;
     sw = null; s.rate = 0; s.over = 0; if (s.el) s.el.dataset.speed = '';
     if (tap && e.type === 'pointerup' && !s.done) {
       if (BS.diff === 'guided') s.auto = true;
@@ -11655,6 +11657,15 @@ function makeHandle(rt, s) {
   $('#handles').appendChild(b);
 }
 function removeHandle(s) { if (s.el) { s.el.remove(); s.el = null; } }
+/* How little turning still counts as a tap rather than a swirl, and the point
+   at which turning takes the screw back off the game.
+   The hand-back is what this really earns its keep for. As a tap threshold it
+   is belt-and-braces: `moved < 10` already excludes any real swirl, since a
+   move under 5px does not count toward `turned` at all, so several counted
+   moves will have carried the pointer past 10px long before the angle matters.
+   I could not construct a case where lowering this from 0.5 changes what
+   happens — it is a narrowing, not a fix. */
+const SCREW_TAP_TURN = 0.15;
 function screwNeed() { return BS.diff === 'guided' ? TAU : SCREW_TURN; }
 /* driving a screw takes ~1.5 s at a steady pace; the fastest it will seat is ~1.2 s. Swirl much faster than that
    for a quarter of a second and the screw strips: it spins free, pops back out and has to be driven again. */
@@ -11678,7 +11689,11 @@ function turnScrew(rt, s, d, auto) {
     }
   }
   s.turn = Math.max(0, s.turn + d);
-  if (!auto) toolDriver(rt, s);
+  /* Show the screwdriver whether the player is turning it or the game is. It
+     used to be skipped on the auto path, so in guided mode -- the default --
+     a tap drove the screw home with no tool in sight, which read as the screw
+     turning itself. */
+  toolDriver(rt, s);
   const k = Math.floor(s.turn / (Math.PI / 4));
   if (k > s.tick) Sound.tick();
   s.tick = k;
