@@ -131,6 +131,21 @@ button{cursor:pointer}
 @keyframes pop{from{transform:scale(.4);opacity:1}to{transform:scale(4.2);opacity:0}}
 
 /* tool palette */
+/* Marcus's aunt reported the left rail doing nothing at all under an Apple
+   Pencil on iPad. I could not reproduce it in Chromium -- pen and touch taps
+   select correctly there at every drift I tried -- so read this as the right
+   declaration, not a confirmed fix.
+   The stage sets touch-action:none, which is correct for the canvas: it handles
+   every gesture itself and must not let the page scroll under a drag. The
+   controls sit inside that region. touch-action is NOT an inherited property,
+   so these buttons computed to `auto` before this rule; what matters for a
+   touch is the effective value across the ancestors, and the spec intersects
+   them, so I cannot claim this opt-out overrides the canvas on iOS.
+   What makes it worth doing anyway: the decor panel's buttons and the
+   booklet's close button already carry touch-action:manipulation. The tool
+   rail is the one control left out of a pattern the rest of the in-stage UI
+   already follows, which is a plain inconsistency whatever iOS does with it. */
+.tools,.tools .tool,.wheel-btn,.stage-actions > *{touch-action:manipulation}
 .tools{position:absolute;left:10px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:4px;padding:5px;border-radius:16px;background:var(--glass);box-shadow:var(--lift);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);z-index:3}
 .tool{position:relative;width:44px;height:44px;border-radius:12px;border:0;background:transparent;display:grid;place-items:center;color:var(--ink-2)}
 .tool svg{width:24px;height:24px}
@@ -10627,6 +10642,17 @@ function tableLayout() {
     const am = new T.MeshStandardMaterial({ color: col('#eb8f4c'), emissive: col('#e2702c'), emissiveIntensity: 0.8, roughness: 0.9, metalness: 0, envMapIntensity: 0.2 });
     const arrow = new T.Group(), head = new T.Mesh(new T.ConeGeometry(1.05, 1.9, 32), am), shaft = new T.Mesh(new T.CylinderGeometry(0.24, 0.24, 1.6, 16), am);
     head.rotation.x = Math.PI; head.position.y = 0.95; shaft.position.y = 2.7; arrow.add(head, shaft);
+    /* A dark shell behind it. The marker is warm orange and the boards it hovers
+       over are pale cream: measured on a rendered frame, the arrow sat at 1.42
+       contrast against the board beside it, where 3.0 is the floor for a
+       graphical object. No single colour clears that against both the pale desk
+       and the dark mat, so the arrow carries its own edge and one of the two
+       always reads. Two draw calls, and only while the arrow is up. */
+    const ao = new T.MeshBasicMaterial({ color: col('#4a1d08'), side: T.BackSide });
+    const headO = new T.Mesh(head.geometry, ao), shaftO = new T.Mesh(shaft.geometry, ao);
+    headO.rotation.copy(head.rotation); headO.position.copy(head.position); headO.scale.set(1.07, 1.04, 1.07);
+    shaftO.position.copy(shaft.position); shaftO.scale.set(1.5, 0.98, 1.5);
+    arrow.add(headO, shaftO);
     arrow.traverse(o => { o.raycast = () => {}; o.userData.noShadow = true; }); arrow.visible = false; TABLE.ring = arrow; TABLE.g.add(arrow);
     const el = document.createElement('div'); el.className = 'table-proxy'; el.setAttribute('aria-hidden', 'true');
     const holder = document.createElement('div'); holder.className = 'table-proxy-holder'; holder.appendChild(el); document.getElementById('stage').appendChild(holder); TABLE.proxyEl = el;
