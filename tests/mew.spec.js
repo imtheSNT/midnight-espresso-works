@@ -689,6 +689,91 @@ test.describe('inside the café', () => {
  * The long game — a build is ten to fourteen hours, so the two things
  * that must never break are finishing it and not losing it.
  * ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ *
+ * Step 7's framing, the other half of Marcus's aunt's note: "the camera
+ * zooms into the side area and you are unable to see the parts to put
+ * down". The bench sits at z=2, the parts area starts at z=27, and the
+ * bench shot was fitted to the sub-assembly alone.
+ * ------------------------------------------------------------------ */
+test.describe('working at the bench', () => {
+  for (const vp of [
+    { name: 'iPad', width: 1024, height: 768 },
+    { name: 'phone held sideways', width: 844, height: 390 },
+  ]) {
+    test(`the bench shot shows the parts as well as the bench — ${vp.name}`, async ({ page }) => {
+      await openKit(page, { viewport: { width: vp.width, height: vp.height } });
+      await openBoxAndLayOut(page);
+
+      const r = await page.evaluate(() => {
+        const m = window.__mew;
+        const tick = (n) => { for (let i = 0; i < n; i++) m.tick(1 / 60); };
+        const brew = m.STEPS.findIndex(s => /brew/i.test(s.title || ''));
+        for (let s = 0; s < brew; s++) {
+          let id;
+          while ((id = m.strictNext())) { m.finishInstant(id); tick(2); }
+          if (m.STEPS[m.BS.step].wire && !m.BS.wired) m.Wire.finish(true);
+          m.Build.nextStep(); tick(2);
+        }
+        tick(60);
+        m.BS.pick = m.STEPS[m.BS.step].parts[0];
+        m.benchFocus(); tick(120);
+
+        const proj = (v) => { const q = v.clone().project(m.camera);
+          return { x: Math.round((q.x * 0.5 + 0.5) * m.stageW), y: Math.round((-q.y * 0.5 + 0.5) * m.stageH) }; };
+        const inView = (p) => p.x >= 0 && p.x <= m.stageW && p.y >= 0 && p.y <= m.stageH;
+        const loose = m.TABLE.shown.map(id => ({ id, at: proj(m.TABLE.clones[id].position) }));
+        const ghost = proj(m.RT[m.BS.pick].ghost.position);
+        return { title: m.STEPS[m.BS.step].title, stage: [m.stageW, m.stageH],
+                 ghost, ghostIn: inView(ghost),
+                 offScreen: loose.filter(l => !inView(l.at)), looseCount: loose.length };
+      });
+
+      expect(r.title, 'did not reach the brew step').toMatch(/brew/i);
+      expect(r.looseCount, 'no loose pieces were on the table to check').toBeGreaterThan(0);
+      expect(r.ghostIn, `where the piece goes is off screen at ${r.ghost.x},${r.ghost.y}`).toBe(true);
+      expect(r.offScreen,
+        `pieces to pick up are off screen on a ${r.stage[0]}x${r.stage[1]} stage: ` +
+        r.offScreen.map(l => `${l.id} at ${l.at.x},${l.at.y}`).join('; ')).toEqual([]);
+    });
+  }
+});
+
+/* ------------------------------------------------------------------ *
+ * Furnishing order. Marcus's aunt: "furnish part rug should go down
+ * before table".
+ * ------------------------------------------------------------------ */
+test.describe('furnishing the café', () => {
+  test('the rug goes down before anything that stands on it', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    const order = await page.evaluate(() => {
+      const m = window.__mew;
+      const step = m.STEPS.findIndex(s => /furnish/i.test(s.title || ''));
+      const parts = m.STEPS[step].parts;
+      const at = (id) => parts.indexOf(id);
+      return {
+        step,
+        rug: at('c15'),
+        onTheRug: {                    // everything sharing the rug's corner
+          'dining chair': at('c01'),
+          'dining chair, second': at('c01b'),
+          'dining table': at('c05'),
+          'booth bench': at('c03'),
+        },
+        rugName: m.RT['c15'].def.name,
+      };
+    });
+
+    expect(order.rugName, 'c15 is no longer the rug — ids shifted').toBe('Rug');
+    expect(order.rug, 'the rug is not in the furnish step').toBeGreaterThanOrEqual(0);
+    for (const [what, i] of Object.entries(order.onTheRug)) {
+      expect(i, `${what} is missing from the furnish step`).toBeGreaterThanOrEqual(0);
+      expect(order.rug, `the ${what} goes down before the rug, so the rug slides under it`).toBeLessThan(i);
+    }
+  });
+});
+
 test.describe('the long game', () => {
   test('the whole kit builds, every step, to the end', async ({ page }) => {
     const { errors } = await openKit(page);
