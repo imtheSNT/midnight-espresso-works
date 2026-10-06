@@ -10671,20 +10671,40 @@ function tableLayout() {
     TABLE.g = new T.Group(); TABLE.g.userData.bench = true; scene.add(TABLE.g);
     /* the next piece to pick up: a copper arrow bobbing above it, pointing down */
     /* soft and glowing rather than shaded: it should read as a marker, not an object */
-    const am = new T.MeshStandardMaterial({ color: col('#eb8f4c'), emissive: col('#e2702c'), emissiveIntensity: 0.8, roughness: 0.9, metalness: 0, envMapIntensity: 0.2 });
+    /* Deeper copper than the old pale orange. The marker lives over cream boards
+       and a light wood desk; at the old colour it measured 1.16-1.42 against
+       them. This is still the kit's own copper, just saturated rather than
+       washed out -- and the emissive is pulled down, because an intensity of
+       0.8 was lifting the paint back towards the board it had to stand out
+       from. 3.74 against the board on paper, and it keeps 2.84 against a dark
+       piece, which a darker paint would have given up. */
+    const am = new T.MeshStandardMaterial({ color: col('#a8440f'), emissive: col('#7d3410'), emissiveIntensity: 0.3, roughness: 0.9, metalness: 0, envMapIntensity: 0.2 });
     const arrow = new T.Group(), head = new T.Mesh(new T.ConeGeometry(1.05, 1.9, 32), am), shaft = new T.Mesh(new T.CylinderGeometry(0.24, 0.24, 1.6, 16), am);
     head.rotation.x = Math.PI; head.position.y = 0.95; shaft.position.y = 2.7; arrow.add(head, shaft);
-    /* A dark shell behind it. The marker is warm orange and the boards it hovers
-       over are pale cream: measured on a rendered frame, the arrow sat at 1.42
-       contrast against the board beside it, where 3.0 is the floor for a
-       graphical object. No single colour clears that against both the pale desk
-       and the dark mat, so the arrow carries its own edge and one of the two
-       always reads. Two draw calls, and only while the arrow is up. */
-    const ao = new T.MeshBasicMaterial({ color: col('#4a1d08'), side: T.BackSide });
-    const headO = new T.Mesh(head.geometry, ao), shaftO = new T.Mesh(shaft.geometry, ao);
-    headO.rotation.copy(head.rotation); headO.position.copy(head.position); headO.scale.set(1.07, 1.04, 1.07);
-    shaftO.position.copy(shaft.position); shaftO.scale.set(1.5, 0.98, 1.5);
-    arrow.add(headO, shaftO);
+    /* The marker hovers over pale boards and measured 1.42 contrast against one,
+       where 3.0 is the floor for a graphical object. A dark outline fixed the
+       number and looked wrong -- an outline is a flat-UI idiom in a kit where
+       everything else is a physical thing on a desk. So it gets what every
+       other object on this table gets: a soft contact shadow. It sits on the
+       surface rather than on the arrow, tightens and darkens as the arrow
+       falls, and spreads as it rises, which separates the marker from a pale
+       board the way a real object would and makes the bob read as motion
+       rather than a flicker. */
+    const ashMat = new T.MeshBasicMaterial({
+      map: canvasTex(128, 128, (g, w, h) => {
+        g.clearRect(0, 0, w, h);
+        const gr = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+        gr.addColorStop(0, 'rgba(0,0,0,0.85)');
+        gr.addColorStop(0.45, 'rgba(0,0,0,0.42)');
+        gr.addColorStop(1, 'rgba(0,0,0,0)');
+        g.fillStyle = gr; g.fillRect(0, 0, w, h);
+      }, { srgb: false }),
+      transparent: true, opacity: 0.8, depthWrite: false,
+    });
+    const ash = new T.Mesh(new T.PlaneGeometry(1, 1), ashMat);
+    ash.rotation.x = -HALF_PI; ash.raycast = () => {};
+    ash.renderOrder = -1; ash.visible = false; ash.userData.noShadow = true;
+    TABLE.g.add(ash); TABLE.ringShadow = ash;
     arrow.traverse(o => { o.raycast = () => {}; o.userData.noShadow = true; }); arrow.visible = false; TABLE.ring = arrow; TABLE.g.add(arrow);
     const el = document.createElement('div'); el.className = 'table-proxy'; el.setAttribute('aria-hidden', 'true');
     const holder = document.createElement('div'); holder.className = 'table-proxy-holder'; holder.appendChild(el); document.getElementById('stage').appendChild(holder); TABLE.proxyEl = el;
@@ -10723,8 +10743,11 @@ function tableLayout() {
     TABLE.instShown.push(id);
   }
   const nx = BS.mode !== 'free' ? strictNext() : null, nw = nx && TABLE.clones[nx];
-  if (nw && nw.visible) { const s2 = 0.72 * Math.max(0.9, Math.min(1.7, Math.max(nw.userData.fw, nw.userData.fd) / 12)); TABLE.ring.scale.setScalar(s2); TABLE.ring.userData.baseY = -0.07 + nw.userData.fp.h * nw.scale.y + 1.0; TABLE.ring.position.set(nw.position.x, TABLE.ring.userData.baseY, nw.position.z); TABLE.ring.visible = true; }
-  else if (nx && TABLE.inst[nx] && TABLE.inst[nx].visible) { const pk = TABLE.inst[nx]; TABLE.ring.scale.setScalar(0.85); TABLE.ring.userData.baseY = pk.userData.top + 0.9; TABLE.ring.position.set(pk.position.x, TABLE.ring.userData.baseY, pk.position.z); TABLE.ring.visible = true; }
+  if (nw && nw.visible) { const s2 = 0.72 * Math.max(0.9, Math.min(1.7, Math.max(nw.userData.fw, nw.userData.fd) / 12)); TABLE.ring.scale.setScalar(s2); TABLE.ring.userData.baseY = -0.07 + nw.userData.fp.h * nw.scale.y + 1.0;
+    /* the surface the marker hovers over: the top of the piece it points at */
+    TABLE.ring.userData.shadowY = -0.06 + nw.userData.fp.h * nw.scale.y + 0.02;
+    TABLE.ring.userData.shadowSize = 3.4; TABLE.ring.position.set(nw.position.x, TABLE.ring.userData.baseY, nw.position.z); TABLE.ring.visible = true; }
+  else if (nx && TABLE.inst[nx] && TABLE.inst[nx].visible) { const pk = TABLE.inst[nx]; TABLE.ring.scale.setScalar(0.85); TABLE.ring.userData.baseY = pk.userData.top + 0.9; TABLE.ring.userData.shadowY = pk.userData.top + 0.02; TABLE.ring.position.set(pk.position.x, TABLE.ring.userData.baseY, pk.position.z); TABLE.ring.visible = true; }
   SHADOW_DIRTY = true;
 }
 /* touch or click a piece on the table to pick it up: the same drag as the old part cards */
@@ -10762,7 +10785,22 @@ function stageTap(cx, cy) {
   if (BOOK.pick && tableHit(cx, cy, [BOOK.pick])) { if (!BOOK.reading || bookNarrow()) bookRead(bookNarrow() ? undefined : true); return; }
   if (DESK_MAT && tableHit(cx, cy, [DESK_MAT])) { if (BOOK.reading) bookRead(false); else goView(stepView(), 0.8); }
 }
-function tableTick(t) { const a = TABLE.ring; if (a && a.visible) { a.position.y = a.userData.baseY + Math.abs(Math.sin(t * 3.2)) * 1.3; a.rotation.y = t * 1.4; } }
+function tableTick(t) {
+  const a = TABLE.ring, sh = TABLE.ringShadow;
+  if (!a || !a.visible) { if (sh) sh.visible = false; return; }
+  const lift = Math.abs(Math.sin(t * 3.2)) * 1.3;
+  a.position.y = a.userData.baseY + lift; a.rotation.y = t * 1.4;
+  if (!sh) return;
+  /* the shadow stays on the surface while the marker rises off it: wider and
+     fainter the higher it gets, the way a real one behaves */
+  const k = lift / 1.3;
+  sh.position.set(a.position.x, a.userData.shadowY != null ? a.userData.shadowY : -0.05, a.position.z);
+  const base = (a.userData.shadowSize || 2.6) * a.scale.x;
+  const sc = base * (1 + k * 0.45);
+  sh.scale.set(sc, sc, 1);
+  sh.material.opacity = 0.78 - k * 0.26;
+  sh.visible = true;
+}
 /* the build camera: the model with the parts on the table in view below it */
 function stepView(i = BS.step) {
   const v = STEPS[i].view;
