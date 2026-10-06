@@ -986,6 +986,90 @@ test.describe('the tools', () => {
       .toBe(before - 1);
   });
 
+  /* Marcus's aunt: "the screwdriver is doing the screw for you, and sometimes
+     the screwdriver model doesn't show up". Those were one bug. In guided mode
+     -- the default -- a tap sets the screw driving itself, and turnScrew only
+     drew the tool on the hand-driven path, so the screw turned with nothing
+     visible holding it. */
+  test('the screwdriver is on screen even when the game is driving it', async ({ page }) => {
+    test.setTimeout(150_000);
+    await openKit(page);
+    await openBoxAndLayOut(page);
+    const at = await toScrewStep(page);
+    expect(await dragPieceHome(page, at.piece)).toBe(true);
+    await page.evaluate(() => window.__mew.Build.setTool('screw', true));
+    await advance(page, 0.2);
+
+    const start = await page.evaluate(() => ({
+      guided: window.__mew.BS.diff === 'guided',
+      driverExists: !!window.__mew.TOOLVIS.driver,
+      visible: !!(window.__mew.TOOLVIS.driver && window.__mew.TOOLVIS.driver.visible),
+    }));
+    expect(start.guided, 'this test is about guided mode, which is the default').toBe(true);
+    expect(start.driverExists, 'no screwdriver model was built at all').toBe(true);
+    expect(start.visible, 'the screwdriver is showing before anything was touched').toBe(false);
+
+    const h = await page.evaluate(() => {
+      const el = document.querySelector('#handles .screw');
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    expect(h, 'no screw handle to tap').toBeTruthy();
+
+    await page.mouse.move(h.x, h.y);
+    await page.mouse.down();
+    await page.waitForTimeout(60);
+    await page.mouse.up();
+
+    let sawDriver = false;
+    for (let i = 0; i < 25 && !sawDriver; i++) {
+      await advance(page, 0.05);
+      sawDriver = await page.evaluate(() =>
+        !!(window.__mew.TOOLVIS.driver && window.__mew.TOOLVIS.driver.visible));
+    }
+    const end = await page.evaluate(() => {
+      const rt = Object.values(window.__mew.RT).find(r => r.screws && r.screws.length);
+      return { prog: rt.screws[0].prog, auto: !!rt.screws[0].auto };
+    });
+
+    expect(end.prog, 'the tap did not start the screw moving at all').toBeGreaterThan(0);
+    expect(sawDriver, 'the screw turned with no screwdriver anywhere on screen').toBe(true);
+  });
+
+  /* Having tapped once, she should be able to change her mind and drive it
+     herself rather than watch. */
+  test('starting to swirl takes the screw back off the game', async ({ page }) => {
+    test.setTimeout(150_000);
+    await openKit(page);
+    await openBoxAndLayOut(page);
+    const at = await toScrewStep(page);
+    expect(await dragPieceHome(page, at.piece)).toBe(true);
+    await page.evaluate(() => window.__mew.Build.setTool('screw', true));
+    await advance(page, 0.2);
+
+    // hand it to the game the way a tap does, and let it get going
+    const handed = await page.evaluate(() => {
+      const rt = Object.values(window.__mew.RT).find(r => r.screws && r.screws.some(x => x.el));
+      const s = rt.screws.find(x => x.el);
+      s.auto = true;
+      return { auto: s.auto, prog: s.prog };
+    });
+    expect(handed.auto, 'could not hand the screw to the game').toBe(true);
+    await advance(page, 0.25);
+
+    const out = await swirlScrew(page, { turns: 0.35, msPerStep: 55 });
+    expect(out.error).toBeUndefined();
+
+    const after = await page.evaluate(() => {
+      const rt = Object.values(window.__mew.RT).find(r => r.screws && r.screws.length);
+      const s = rt.screws[0];
+      return { auto: !!s.auto, prog: +(s.prog || 0).toFixed(3) };
+    });
+    expect(after.prog, 'the swirl did not move the screw').toBeGreaterThan(0);
+    expect(after.auto, 'the game kept driving the screw after she took hold of it').toBe(false);
+  });
+
   test('swirling far too fast strips it back to the start', async ({ page }) => {
     test.setTimeout(150_000);
     await openKit(page);
