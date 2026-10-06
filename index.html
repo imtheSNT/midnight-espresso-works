@@ -10417,6 +10417,24 @@ function gfxApply() {
 }
 
 /* ===== Tools you can see: the glue brush and the mallet (swappable toolsets for future themes) ===== */
+/* Mid-century glazing: clear, then the colours that era actually put in
+   windows and light fittings. Names are what a kit box would call them. */
+const GLASS_TINTS = [
+  ['Clear',     '#e3f4f5', 0.17],
+  ['Smoke',     '#8d9299', 0.30],
+  ['Amber',     '#e0a23f', 0.30],
+  ['Bottle',    '#4f8f6b', 0.30],
+  ['Aqua',      '#5fc4cf', 0.26],
+  ['Rose',      '#d98a92', 0.28],
+];
+function applyGlass() {
+  const t = GLASS_TINTS[BS.glass] || GLASS_TINTS[0];
+  if (!M.petg) return;
+  M.petg.color.copy(col(t[1]));
+  M.petg.opacity = t[2];
+  M.petg.needsUpdate = true;
+}
+
 const TOOLSETS = { classic: { brush: 'tool_brush_classic', mallet: 'tool_mallet_classic', driver: 'tool_driver_classic' } };
 const TOOLVIS = { set: 'classic', brush: null, pivot: null, driver: null, bt: -9, mt: -9, dt: -9 };
 const _tv1 = new T.Vector3(), _tv2 = new T.Vector3(), _tvUp = new T.Vector3(0, 1, 0), _tvQ = new T.Quaternion();
@@ -11496,7 +11514,7 @@ const SCREW_TURN = 3 * Math.PI; // one and a half turns per screw
 const SVGNS = 'http://www.w3.org/2000/svg';
 const BS = {
   decor: {}, wireCross: 0,
-  step: 0, done: new Set(), glued: new Set(), wired: false, diff: 'guided', mode: 'steps', tool: 'hand',
+  step: 0, done: new Set(), glued: new Set(), wired: false, diff: 'guided', mode: 'steps', tool: 'hand', glass: 0,
   pending: null, drag: null, show: false, paint: 'midnight', light: 'warm', muted: false,
   announced: new Set(), flash: null, flashT: 0, suggest: null,
 };
@@ -12382,7 +12400,7 @@ function afterChange() {
 function save() {
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify({
-      v: 1, step: BS.step, done: [...BS.done], glued: [...BS.glued], wired: BS.wired, diff: BS.diff, mode: BS.mode, amb: AMBIENCE, unboxed: !!BS.unboxed, decor: BS.decor, wireCross: BS.wireCross || 0,
+      v: 1, step: BS.step, done: [...BS.done], glued: [...BS.glued], wired: BS.wired, diff: BS.diff, mode: BS.mode, amb: AMBIENCE, unboxed: !!BS.unboxed, decor: BS.decor, glass: BS.glass || 0, wireCross: BS.wireCross || 0,
       show: BS.show, paint: BS.paint, light: BS.light, muted: BS.muted,
     }));
   } catch (e) { /* storage unavailable */ }
@@ -12551,6 +12569,7 @@ const Build = {
     makeParts();
     deskBuild(); boxBuild(); bookBuild(); steamBuild(); motesBuild(); toolVisInit(); addGlows(); shadowFlags(); applyTheme(); collectFollow();
     setupBench();
+    applyGlass();   /* a saved tint, or Clear on a fresh kit */
     brush.tip = document.createElement('div');
     brush.tip.className = 'brush-tip';
     brush.tip.style.opacity = 0;
@@ -12672,6 +12691,10 @@ const Build = {
     if (LIGHTS[s.light]) BS.light = s.light;
     BS.muted = !!s.muted;
     if (s.decor && typeof s.decor === 'object') BS.decor = s.decor;
+    /* Apply it here rather than only at init: the save is read after the
+       materials are built, so a remembered tint set at init alone comes back
+       clear. The test for reopening the kit is what caught that. */
+    if (Number.isInteger(s.glass) && s.glass >= 0 && s.glass < GLASS_TINTS.length) { BS.glass = s.glass; applyGlass(); }
     BS.wireCross = s.wireCross || 0;
     applyAllDecor();
     (s.glued || []).forEach(id => { if (RT[id]) glueDone(id, true); });
@@ -12726,6 +12749,17 @@ const Build = {
     const pulse = 0.5 + 0.5 * Math.sin(SIM.time * 3.4);
     M.ghost.opacity = dragging ? 0.22 : 0.08 + 0.1 * pulse;
     M.ghostLine.opacity = dragging ? 0.6 : 0.28 + 0.34 * pulse;
+  },
+  setGlass(i) {
+    const n = Math.max(0, Math.min(GLASS_TINTS.length - 1, i | 0));
+    if (n === (BS.glass || 0)) return;
+    BS.glass = n;
+    applyGlass();
+    Sound.tock();
+    save();
+    $$('[data-glass]').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.glass === n)));
+    $$('[data-cname="glass"]').forEach(x => { x.textContent = GLASS_TINTS[n][0]; });
+    UI.toast(`Window glass: ${GLASS_TINTS[n][0]}`);
   },
   setDecor(id, kind, i) {
     const rt = RT[id], d = rt && rt.def;
@@ -13346,7 +13380,14 @@ const UI = {
       return head + `<button type="button" class="dp-item" data-decor-item="${id}" aria-pressed="${id === d.id}"><i class="dp-sw" style="--sw:${c2[1]}"></i><span>${esc(x.name)}</span></button>`;
     }).join('');
     const note = !BS.show && !BS.done.has(d.id) ? '<p class="dp-note">Not placed yet. The outline shows its style; the color shows once it is in.</p>' : '';
+    const gl = GLASS_TINTS.map((t, i) =>
+      `<button type="button" class="sw" data-glass="${i}" aria-pressed="${i === (BS.glass || 0)}" aria-label="Window glass: ${esc(t[0])}" title="${esc(t[0])}" style="--sw:${t[1]}"></button>`).join('');
+    const glassRow = `<div class="dp-edit dp-glass">
+    <p class="dp-name">Window glass <small>every pane</small></p>
+    <div class="swatches dp-swatches" role="group" aria-label="Window glass colour">${gl}<span class="dp-cname" data-cname="glass">${esc((GLASS_TINTS[BS.glass || 0] || GLASS_TINTS[0])[0])}</span></div></div>`;
+
     return `<div class="decor dp">
+  ${glassRow}
   <div class="dp-edit"><p class="dp-name">${esc(d.name)}${d.group ? ` <small>${esc(d.group)}</small>` : ''}</p>${note}
     <div class="seg decor-seg" role="group" aria-label="${esc(d.name)} style">${st}</div>
     <div class="swatches dp-swatches" role="group" aria-label="${esc(d.name)} color">${cl}<span class="dp-cname" data-cname="${d.id}">${esc(cur[0])}</span></div></div>
@@ -13354,6 +13395,8 @@ const UI = {
 </div>`;
   },
   onSheetClick(e) {
+    const gt = e.target.closest('[data-glass]');
+    if (gt) { Build.setGlass(+gt.dataset.glass); return; }
     const dc = e.target.closest('[data-decor]');
     if (dc) { Build.setDecor(dc.dataset.decor, dc.dataset.kind, +dc.dataset.i); return; }
     const di = e.target.closest('[data-decor-item]'); if (di) { decorPick(di.dataset.decorItem); return; }
@@ -14711,7 +14754,7 @@ function boot() {
   // handle for automated checks of this test build
   hudInit();
   setTimeout(() => { if (!BS.show && BS.unboxed && !BS.boxing) coachShow(); }, 2200);
-  window.__mew = { wheelSlop, WHEEL_SLOP, pbookShow, strictNext, hudSync, coachShow, sheetShow, VOFF, CINE, IBL, cineReveal, cineTour, cineStop, cineUniforms, postRender, setAmbience, HERO_VIEW, tick: dt => { cineTick(dt); hudTick(dt); updateView(dt); Build.update(dt); envTick(dt); updateSim(dt); UI.update(dt); }, MOTES, STEAM, POST, postLook, toolDriver, get stageW() { return stageW; }, get stageH() { return stageH; }, TABLE, tableDown, stageTap, stepView, DM, MURAL, BOOK, bookRead, UI, TABLE, tableLayout, BOX, boxIntro, boxOpen, boxFinish, toolSwing, TOOLVIS, ENV, envShow, PIECE, Wheel, ctrl, ROOM, ROOM_VIEWS, enterRoom, exitRoom, roomView, GLOWS, LIGHTS3D, FEATURES, CAFE, ASM, benchFocus: () => benchFocus(), STEPS, WL, WX, WY, MECH, OWL, DM, ART_TEX, WHEEL_TOOLS, finishInstant, ctrl, Wheel, CAM, turnBy, get tween() { return viewTween; }, BS, RT, SIM, Build, UI, Wire, view, renderer, camera, scene, layers, goView };
+  window.__mew = { GLASS_TINTS, applyGlass, wheelSlop, WHEEL_SLOP, pbookShow, strictNext, hudSync, coachShow, sheetShow, VOFF, CINE, IBL, cineReveal, cineTour, cineStop, cineUniforms, postRender, setAmbience, HERO_VIEW, tick: dt => { cineTick(dt); hudTick(dt); updateView(dt); Build.update(dt); envTick(dt); updateSim(dt); UI.update(dt); }, MOTES, STEAM, POST, postLook, toolDriver, get stageW() { return stageW; }, get stageH() { return stageH; }, TABLE, tableDown, stageTap, stepView, DM, MURAL, BOOK, bookRead, UI, TABLE, tableLayout, BOX, boxIntro, boxOpen, boxFinish, toolSwing, TOOLVIS, ENV, envShow, PIECE, Wheel, ctrl, ROOM, ROOM_VIEWS, enterRoom, exitRoom, roomView, GLOWS, LIGHTS3D, FEATURES, CAFE, ASM, benchFocus: () => benchFocus(), STEPS, WL, WX, WY, MECH, OWL, DM, ART_TEX, WHEEL_TOOLS, finishInstant, ctrl, Wheel, CAM, turnBy, get tween() { return viewTween; }, BS, RT, SIM, Build, UI, Wire, view, renderer, camera, scene, layers, goView };
 }
 
 main();
