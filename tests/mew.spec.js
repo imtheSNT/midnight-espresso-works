@@ -1116,33 +1116,51 @@ test.describe('squaring up to a piece', () => {
 
     await buildWholeKit(page);
     await enterShowcase(page);
-    /* the reveal film is still rolling at this point, and it hides the whole
-       camera cluster -- which would make this pass whatever the button did.
-       Stop the film first, then check the cluster is back. */
-    await page.evaluate(() => { window.__mew.cineStop(true); });
-    await advance(page, 1.5);
-    await page.waitForTimeout(200);
 
-    expect(await page.evaluate(() => window.__mew.BS.show), 'never reached the showcase').toBe(true);
-    expect(await page.locator('#turn').isVisible(),
-      'the camera cluster is hidden, so this would prove nothing').toBe(true);
-    expect(await page.locator('#btn-square').isVisible(),
-      'a button with nothing left to face is still on screen').toBe(false);
+    /* Stop the film and read the answer in the same round trip. The reveal is
+       still rolling when enterShowcase returns and body.cine hides the whole
+       camera cluster, so without stopping it this passes whatever the button
+       does -- it did, until a mutation said so. Stopping it from one call and
+       asserting from another is no better: the café's film restarts itself
+       after a quiet spell, and on a slow CI runner the gap between two calls
+       is long enough for that to happen. */
+    const r = await page.evaluate(() => {
+      const m = window.__mew;
+      if (m.CINE.busy) m.cineStop(true);
+      for (let i = 0; i < 60; i++) m.tick(1 / 60);
+      m.CINE.lastIn = performance.now();          // and do not let it start again
+      const shown = (el) => !!el && getComputedStyle(el).display !== 'none' &&
+        el.getBoundingClientRect().height > 0 && !el.hidden;
+      return { show: m.BS.show, cine: document.body.classList.contains('cine'),
+               turn: shown(document.getElementById('turn')),
+               square: shown(document.getElementById('btn-square')) };
+    });
+
+    expect(r.show, 'never reached the showcase').toBe(true);
+    expect(r.cine, 'the film is still rolling').toBe(false);
+    expect(r.turn, 'the camera cluster is hidden, so this would prove nothing').toBe(true);
+    expect(r.square, 'a button with nothing left to face is still on screen').toBe(false);
   });
 
   test('the step card gets out of the way of the shot', async ({ page }) => {
     await openKit(page);
     await openBoxAndLayOut(page);
 
-    /* the coach card is positioned dead centre of the stage, which is exactly
-       where a square-up puts the piece */
-    await page.evaluate(() => { window.__mew.coachShow(); });
-    await page.waitForTimeout(120);
-    expect(await page.locator('#coach').isVisible(), 'the card never came up, so this proves nothing').toBe(true);
+    /* The coach card is positioned dead centre of the stage, which is exactly
+       where a square-up puts the piece. Shown, checked and dismissed in one
+       round trip: the card takes itself away after 4.8 seconds, and a test
+       that spends that budget on round trips would start passing because the
+       card expired rather than because the shortcut dismissed it. */
+    const r = await page.evaluate(() => {
+      window.__mew.coachShow();
+      const el = document.getElementById('coach');
+      const before = !el.hidden && el.classList.contains('show');
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', bubbles: true, cancelable: true }));
+      return { before, after: el.classList.contains('show') };
+    });
 
-    await page.keyboard.press('f');
-    await page.waitForTimeout(500);
-    expect(await page.locator('#coach').isVisible(), 'the card is still sitting over the piece').toBe(false);
+    expect(r.before, 'the card never came up, so this proves nothing').toBe(true);
+    expect(r.after, 'the card is still sitting over the piece').toBe(false);
   });
 
   test('never ends up under the desk, overhead, or too close to see anything', async ({ page }) => {
