@@ -1045,6 +1045,79 @@ test.describe('squaring up to a piece', () => {
       .toBeGreaterThan(0.9);
   });
 
+  test('has a button of its own, and one tap is enough', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    const btn = page.locator('#btn-square');
+    expect(await btn.isVisible(), 'no square-up button on screen while building').toBe(true);
+
+    const piece = await page.evaluate(() => {
+      const t = window.__mew.squareTarget();
+      return t && t.def.id;
+    });
+    expect(piece, 'nothing for a square-up to be about').toBeTruthy();
+
+    const box = await btn.boundingBox();
+    const before = await page.evaluate(() => window.__mew.view.fit);
+
+    /* a tap, not a hold: down and up with nothing in between */
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.up();
+    await advance(page, 1.5);
+
+    const after = await page.evaluate(() => window.__mew.view.fit);
+    expect(after, 'tapping the button did not bring the piece closer').toBeLessThan(before - 0.5);
+    const squared = await offSquare(page, piece);
+    expect(squared.deg, `${squared.deg.toFixed(0)} degrees off the piece after a tap`).toBeLessThan(35);
+  });
+
+  test('the camera buttons still fit on a phone held sideways', async ({ page }) => {
+    await openKit(page, { viewport: PHONE_LANDSCAPE });
+    await openBoxAndLayOut(page);
+
+    /* the kit stacks these into a column on a phone, which is the layout a
+       fourth button could overflow. Playwright does not report a coarse
+       pointer, so the class is set by hand to get at the CSS. */
+    const r = await page.evaluate(() => {
+      document.body.classList.add('phone-l');
+      const t = document.getElementById('turn'), b = t.getBoundingClientRect();
+      const st = document.getElementById('stage').getBoundingClientRect();
+      return { dir: getComputedStyle(t).flexDirection, buttons: t.children.length,
+               top: b.top - st.top, bottom: st.bottom - b.bottom,
+               left: b.left - st.left, right: st.right - b.right, h: b.height, w: b.width };
+    });
+
+    expect(r.buttons, 'the camera cluster lost a button').toBe(4);
+    expect(r.dir, 'the cluster should stack on a phone').toBe('column');
+    expect(r.top, `the cluster runs off the top by ${(-r.top).toFixed(0)}px`).toBeGreaterThan(4);
+    expect(r.bottom, `the cluster runs off the bottom by ${(-r.bottom).toFixed(0)}px`).toBeGreaterThan(4);
+    expect(r.right, 'the cluster runs off the right edge').toBeGreaterThan(-1);
+  });
+
+  test('the square-up button goes away once the kit is finished', async ({ page }) => {
+    test.setTimeout(240_000);
+    await openKit(page);
+    await openBoxAndLayOut(page);
+    expect(await page.locator('#btn-square').isVisible(), 'not on screen while building').toBe(true);
+
+    await buildWholeKit(page);
+    await enterShowcase(page);
+    /* the reveal film is still rolling at this point, and it hides the whole
+       camera cluster -- which would make this pass whatever the button did.
+       Stop the film first, then check the cluster is back. */
+    await page.evaluate(() => { window.__mew.cineStop(true); });
+    await advance(page, 1.5);
+    await page.waitForTimeout(200);
+
+    expect(await page.evaluate(() => window.__mew.BS.show), 'never reached the showcase').toBe(true);
+    expect(await page.locator('#turn').isVisible(),
+      'the camera cluster is hidden, so this would prove nothing').toBe(true);
+    expect(await page.locator('#btn-square').isVisible(),
+      'a button with nothing left to face is still on screen').toBe(false);
+  });
+
   test('the step card gets out of the way of the shot', async ({ page }) => {
     await openKit(page);
     await openBoxAndLayOut(page);
