@@ -49,7 +49,7 @@ npm test
 ```
 
 Tests run headless against software rendering so results are the same on every
-machine. That costs time: 57 tests took 31 minutes that way on the machine this
+machine. That costs time: 63 tests took 30 minutes that way on the machine this
 was last measured on, so take that as an order of magnitude rather than a
 promise and time it on yours.
 `npm run test:gpu` uses the real graphics card instead and is far quicker,
@@ -132,6 +132,24 @@ that piece's group and hides and moves with it. Instancing the same screw
 across several pieces reintroduces exactly the problem batching has: the pieces
 stop being separately addressable. Otherwise, raise the ceiling deliberately
 with a note about why.
+
+### Timing in tests: never race a timer you cannot win
+
+Three separate tests in this suite have been caught passing or failing by
+machine load, all the same way: a Playwright call waiting out a timer the kit
+owns. The tool wheel's 430ms long press, the press ring's 0.45s of simulated
+fill, and the recentre button's 320ms hold. Two CDP calls back to back have been
+measured crossing 320ms under full-suite load, so even `down()` immediately
+followed by `up()` is not a safe tap.
+
+The remedies, in order of preference: assert the rule directly rather than
+through the gesture; wait for the effect rather than for a duration, with a
+predicate specific enough that something already in flight cannot satisfy it
+(`tween.to.fit < before - 0.5`, not just "a tween exists"); or dispatch the
+events from inside the page, where press and release land in the same task.
+
+A test that depends on winning that race is not protecting anything — it is a
+coin toss that will eventually be "fixed" by deleting the assertion.
 
 ### Timing in tests: hold by fill, not by the clock
 
