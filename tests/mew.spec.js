@@ -934,14 +934,18 @@ test.describe('squaring up to a piece', () => {
 
     const before = await page.evaluate(() => ({ theta: window.__mew.view.theta, phi: window.__mew.view.phi, fit: window.__mew.view.fit }));
 
-    /* Wait for the hold to fire rather than for a stopwatch. A fixed 600ms
-       against a 320ms timer looks like plenty of margin and is not: under
-       software rendering the gap between two of these calls has been seen to
-       swallow the whole window, which turns the tap below into a second hold
-       and the test into a coin toss. */
+    /* Wait for the hold to fire rather than for a stopwatch, and wait for a
+       move that is specifically a zoom in, so a tween already in flight cannot
+       satisfy it. A fixed wait against the 320ms timer looks like plenty of
+       margin and is not: under load the gap between two of these calls has
+       been seen to swallow the whole window. */
+    await page.waitForFunction(() => !window.__mew.tween, null, { timeout: 10_000 });
     await page.mouse.move(at.x, at.y);
     await page.mouse.down();
-    await page.waitForFunction(() => !!window.__mew.tween, null, { timeout: 10_000 });
+    await page.waitForFunction((f) => {
+      const t = window.__mew.tween;
+      return !!t && t.to.fit < f - 0.5;
+    }, before.fit, { timeout: 10_000 });
     await page.mouse.up();
     await advance(page, 1.5);
 
@@ -950,9 +954,17 @@ test.describe('squaring up to a piece', () => {
     const squared = await offSquare(page, piece);
     expect(squared.deg, `${squared.deg.toFixed(0)} degrees off the piece after a hold`).toBeLessThan(35);
 
-    // a tap still does what it always did: no pause at all, so the hold cannot fire
-    await page.mouse.down();
-    await page.mouse.up();
+    /* A tap, dispatched from inside the page so press and release land in the
+       same task. Driving it with the mouse cannot be made safe: two CDP calls
+       back to back have been measured crossing the 320ms hold under full-suite
+       load, which turns the tap into a second hold and the test into a coin
+       toss. The handlers under test are the same either way. */
+    await page.evaluate(() => {
+      const b = document.querySelector('#turn [data-turn="0"]');
+      const o = { bubbles: true, cancelable: true, pointerId: 991, pointerType: 'mouse', isPrimary: true, button: 0 };
+      b.dispatchEvent(new PointerEvent('pointerdown', o));
+      b.dispatchEvent(new PointerEvent('pointerup', o));
+    });
     await advance(page, 1.5);
 
     const tapped = await page.evaluate(() => ({ view: { theta: window.__mew.view.theta, phi: window.__mew.view.phi, fit: window.__mew.view.fit }, step: window.__mew.stepView() }));
