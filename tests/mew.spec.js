@@ -1212,6 +1212,124 @@ test.describe('squaring up to a piece', () => {
 });
 
 /* ------------------------------------------------------------------ *
+ * The glowing outline that shows where a piece goes. Marcus's aunt said
+ * she could not see it, and she was right: measured by rendering the
+ * same frame with the ghost shown and hidden and diffing, the warm
+ * orange cleared the 3.0 contrast floor against 3-6% of the backgrounds
+ * it actually lands on, and across its own boundary the median contrast
+ * was 1.03 -- the shape had no edge at all, because ghostClone only ever
+ * copied line segments the source already carried and a kit piece gets
+ * its edges after the ghost is cloned.
+ *
+ * These are arithmetic and structure, not pixels. A pixel measurement of
+ * this kept moving between runs -- the fill rides a sine, and the kit's
+ * own quality ladder changes the pixel ratio under load -- so what is
+ * pinned here is the thing that was actually broken.
+ * ------------------------------------------------------------------ */
+test.describe('the outline that shows where a piece goes', () => {
+  /** Relative luminance of a three.js colour, which is already linear. */
+  const LUM = '(c) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b';
+
+  test('the piece on show has an outline at all', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    const r = await page.evaluate(() => {
+      const m = window.__mew;
+      const before = Object.values(m.RT).filter(rt => rt.ghost && rt.ghost.userData.edged).length;
+      m.BS.pick = null;
+      m.updateGhosts();
+      const shown = Object.values(m.RT).filter(rt => rt.ghost && rt.ghost.visible);
+      const after = Object.values(m.RT).filter(rt => rt.ghost && rt.ghost.userData.edged).length;
+      const counts = shown.map(rt => {
+        let fills = 0, lines = 0, segs = 0;
+        rt.ghost.traverse(o => {
+          if (o.isLineSegments) { lines++; segs += o.geometry.attributes.position.count / 2; }
+          else if (o.isMesh && !o.userData.xray && !o.userData.rim) fills++;
+        });
+        return { id: rt.def.id, fills, lines, segs };
+      });
+      return { before, after, counts, total: Object.keys(m.RT).length };
+    });
+
+    expect(r.counts.length, 'no ghost was on show to check').toBeGreaterThan(0);
+    r.counts.forEach(c => {
+      expect(c.lines, `${c.id} has no outline`).toBe(c.fills);
+      expect(c.segs, `${c.id}'s outline has no segments`).toBeGreaterThan(3);
+    });
+    /* Built on show, not at boot: all 322 pieces have a ghost and the first
+       frame is slow enough already. Only the one or two the kit actually puts
+       on screen should ever have been given an outline. */
+    expect(r.total, 'the kit lost pieces').toBeGreaterThan(300);
+    expect(r.after, `${r.after} of ${r.total} ghosts were given an outline`).toBeLessThanOrEqual(4);
+  });
+
+  test('the outline is dark enough to read on the mat and on the wood', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+    await advance(page, 1.5);          // let whatever drives the alpha settle
+
+    /* the material is not on the hook list, so read it off a live outline */
+    const v = await page.evaluate((lumSrc) => {
+      const m = window.__mew;
+      const lum = eval(lumSrc);
+      m.BS.pick = null; m.updateGhosts();
+      let mat = null;
+      Object.values(m.RT).forEach(rt => { if (!rt.ghost || !rt.ghost.visible) return;
+        rt.ghost.traverse(o => { if (o.isLineSegments && !mat) mat = o.material; }); });
+      if (!mat) return null;
+      const L = lum(mat.color), a = mat.opacity;
+      /* what the line ends up as once it is blended over a background, and how
+         that compares with the background it is drawn on. Both are linear, which
+         is the space the renderer blends in. */
+      const against = (bg) => {
+        const mixed = a * L + (1 - a) * bg;
+        const hi = Math.max(mixed, bg), lo = Math.min(mixed, bg);
+        return (hi + 0.05) / (lo + 0.05);
+      };
+      return { L, a, onMat: against(0.128), onWood: against(0.738), transparent: mat.transparent };
+    }, LUM);
+
+    expect(v, 'no outline material to read').not.toBeNull();
+    /* 0.128 and 0.738 are the 10th percentile and the median of the background
+       luminance actually behind these outlines, measured off real frames at two
+       different steps -- the dark cutting mat and the pale counter. */
+    expect(v.onMat, `only ${v.onMat.toFixed(2)} against the darkest tenth of what it sits on`)
+      .toBeGreaterThanOrEqual(3);
+    expect(v.onWood, `only ${v.onWood.toFixed(2)} against the pale counter`)
+      .toBeGreaterThanOrEqual(3);
+  });
+
+  test('the outline does not fade away while you look for the piece', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    const r = await page.evaluate(() => {
+      const m = window.__mew;
+      m.BS.pick = null; m.updateGhosts();
+      let mat = null, fill = null, xray = 0, line = 0;
+      Object.values(m.RT).forEach(rt => { if (!rt.ghost || !rt.ghost.visible) return;
+        rt.ghost.traverse(o => {
+          if (o.isLineSegments) { if (!mat) mat = o.material; line = Math.max(line, o.renderOrder); }
+          else if (o.isMesh && o.userData.xray) xray = Math.max(xray, o.renderOrder);
+          else if (o.isMesh && !o.userData.rim && !fill) fill = o.material;
+        }); });
+      if (!mat || !fill) return null;
+      /* sample the alpha across a full cycle of whatever is driving it */
+      let lo = 1, fillLo = 1;
+      for (let i = 0; i < 180; i++) { m.tick(1 / 60); lo = Math.min(lo, mat.opacity); fillLo = Math.min(fillLo, fill.opacity); }
+      return { lo, fillLo, line, xray };
+    });
+
+    expect(r, 'no outline material to read').not.toBeNull();
+    expect(r.lo, `the outline dims to ${r.lo.toFixed(2)} with nothing in hand`).toBeGreaterThanOrEqual(0.8);
+    /* the fill used to bottom out at 0.08, which is a rumour rather than a shape */
+    expect(r.fillLo, `the fill dims to ${r.fillLo.toFixed(2)} with nothing in hand`).toBeGreaterThanOrEqual(0.15);
+    expect(r.line, 'the x-ray wash paints over the outline').toBeGreaterThan(r.xray);
+  });
+});
+
+/* ------------------------------------------------------------------ *
  * Window glass. Marcus's aunt asked for a way to tint it. Every pane in
  * the kit shares one material, so it is a single choice, the way a real
  * kit ships one colour of acrylic in the box.
