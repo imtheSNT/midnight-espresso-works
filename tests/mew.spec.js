@@ -806,6 +806,339 @@ test.describe('working at the bench', () => {
 });
 
 /* ------------------------------------------------------------------ *
+ * Squaring up to a piece. Marcus asked for better angles while you are
+ * placing something. Deriving the angle is the easy half -- look down
+ * the direction the piece's own vertices vary least along -- and these
+ * cover the half that is not: whether the shot that comes out of it has
+ * the piece in it, at a size you can judge, from a camera that is not
+ * under the desk. Three earlier attempts got the angle right and the
+ * shot wrong, so that is what is pinned here.
+ * ------------------------------------------------------------------ */
+test.describe('squaring up to a piece', () => {
+  /** How far the camera is off a piece's own axis, in degrees. */
+  const offSquare = (page, id) => page.evaluate((pid) => {
+    const m = window.__mew, T = window.THREE;
+    const rt = m.RT[pid], g = rt.ghost && rt.ghost.parent ? rt.ghost : rt.g;
+    const cam = new T.Vector3().copy(m.camera.position).sub(m.view.target).normalize();
+    const axis = new T.Vector3();
+    const ratio = m.viewAxis(g, cam, axis);
+    return { deg: Math.acos(Math.min(1, Math.abs(axis.dot(cam)))) * 180 / Math.PI,
+             ratio: isFinite(ratio) ? ratio : 999, face: ratio >= m.SQ_DECISIVE };
+  }, id);
+
+  /** Point the camera edge-on to a piece, the state this feature exists to fix. */
+  const standEdgeOn = (page, id) => page.evaluate((pid) => {
+    const m = window.__mew, T = window.THREE;
+    const rt = m.RT[pid], g = rt.ghost && rt.ghost.parent ? rt.ghost : rt.g;
+    const axis = new T.Vector3();
+    m.viewAxis(g, null, axis);
+    /* any direction perpendicular to the axis is edge-on; take the horizontal one */
+    const perp = Math.abs(axis.y) > 0.9 ? new T.Vector3(0, 0, 1)
+      : new T.Vector3(-axis.z, 0, axis.x).normalize();
+    m.goView({ target: m.view.target.toArray(), theta: Math.atan2(perp.x, perp.z),
+               phi: Math.abs(axis.y) > 0.9 ? 1.2 : 1.45, fit: m.view.fit }, 0.01);
+    for (let i = 0; i < 40; i++) m.tick(1 / 60);
+  }, id);
+
+  test('turns the view to face a piece that has a face', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    /* the back plinth wall: a panel, 5.8 times flatter along its normal than
+       along anything else, so it plainly has a face to square up to */
+    const piece = 'p02';
+    expect((await offSquare(page, piece)).face, 'picked a piece with no face to square to').toBe(true);
+
+    await standEdgeOn(page, piece);
+    const before = await offSquare(page, piece);
+    expect(before.deg, 'the camera was meant to start edge-on').toBeGreaterThan(70);
+
+    await page.evaluate((id) => {
+      const m = window.__mew;
+      m.goView(m.squareView(m.RT[id], true), 0.4);
+      for (let i = 0; i < 60; i++) m.tick(1 / 60);
+    }, piece);
+
+    const after = await offSquare(page, piece);
+    expect(after.deg, `still ${after.deg.toFixed(0)} degrees off the face after squaring up`).toBeLessThan(35);
+  });
+
+  test('frames a round piece without spinning the camera', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    /* a foot: a turned stub with no face, so there is nothing to square to and
+       turning the camera would be motion for its own sake */
+    const piece = 'p01f1';
+    expect((await offSquare(page, piece)).face, 'picked a piece that does have a face').toBe(false);
+
+    const r = await page.evaluate((id) => {
+      const m = window.__mew;
+      const was = { theta: m.view.theta, phi: m.view.phi, fit: m.view.fit };
+      const asked = m.squareView(m.RT[id], true);
+      const unasked = m.squareView(m.RT[id], false);
+      /* the middle of the piece's geometry, not the ghost group's origin --
+         a ghost group sits at its layer's origin, which for a foot is a dozen
+         units from the foot */
+      const bx = new THREE.Box3(), bb = new THREE.Box3(), c = new THREE.Vector3();
+      m.RT[id].ghost.updateMatrixWorld(true);
+      m.RT[id].ghost.traverse(o => { if (!o.isMesh) return;
+        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+        bb.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld); bx.union(bb); });
+      bx.getCenter(c);
+      return { was, asked, unasked, ghost: [c.x, c.y, c.z] };
+    }, piece);
+
+    expect(r.unasked, 'a round piece pulled the camera round on its own').toBeNull();
+    expect(r.asked, 'asking to square up to a round piece did nothing at all').not.toBeNull();
+    expect(r.asked.theta, 'the camera swung round for a piece with no face').toBeCloseTo(r.was.theta, 5);
+    expect(r.asked.phi, 'the camera tilted for a piece with no face').toBeCloseTo(r.was.phi, 5);
+    expect(r.asked.fit, 'asking should still bring the piece closer').toBeLessThan(r.was.fit);
+    expect(Math.hypot(r.asked.target[0] - r.ghost[0], r.asked.target[2] - r.ghost[2]),
+      'the shot is not centred on the piece').toBeLessThan(2.5);
+  });
+
+  test('stays put when the piece already reads well', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+    const piece = 'p02';
+
+    const r = await page.evaluate((id) => {
+      const m = window.__mew;
+      m.goView(m.squareView(m.RT[id], true), 0.01);
+      for (let i = 0; i < 40; i++) m.tick(1 / 60);
+      const squareNow = m.squareView(m.RT[id], false);
+      /* and now a middling angle, well short of edge-on */
+      m.goView({ target: m.view.target.toArray(), theta: m.view.theta + 0.8,
+                 phi: m.view.phi, fit: m.view.fit }, 0.01);
+      for (let i = 0; i < 40; i++) m.tick(1 / 60);
+      const middling = m.squareView(m.RT[id], false);
+      return { squareNow, middling };
+    }, piece);
+
+    expect(r.squareNow, 'reframed a piece the camera was already square to').toBeNull();
+    expect(r.middling, 'reframed a piece that was only 45 degrees off').toBeNull();
+  });
+
+  test('holding the recentre button squares up; a tap still recentres', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    const btn = page.locator('#turn [data-turn="0"]');
+    const box = await btn.boundingBox();
+    expect(box, 'the recentre button is not on screen').toBeTruthy();
+    const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+
+    const piece = await page.evaluate(() => window.__mew.squareTarget() && window.__mew.squareTarget().def.id);
+    expect(piece, 'nothing for a square-up to be about').toBeTruthy();
+
+    const before = await page.evaluate(() => ({ theta: window.__mew.view.theta, phi: window.__mew.view.phi, fit: window.__mew.view.fit }));
+
+    /* Wait for the hold to fire rather than for a stopwatch. A fixed 600ms
+       against a 320ms timer looks like plenty of margin and is not: under
+       software rendering the gap between two of these calls has been seen to
+       swallow the whole window, which turns the tap below into a second hold
+       and the test into a coin toss. */
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    await page.waitForFunction(() => !!window.__mew.tween, null, { timeout: 10_000 });
+    await page.mouse.up();
+    await advance(page, 1.5);
+
+    const held = await page.evaluate(() => ({ theta: window.__mew.view.theta, phi: window.__mew.view.phi, fit: window.__mew.view.fit }));
+    expect(held.fit, 'holding the button did not bring the piece closer').toBeLessThan(before.fit - 0.5);
+    const squared = await offSquare(page, piece);
+    expect(squared.deg, `${squared.deg.toFixed(0)} degrees off the piece after a hold`).toBeLessThan(35);
+
+    // a tap still does what it always did: no pause at all, so the hold cannot fire
+    await page.mouse.down();
+    await page.mouse.up();
+    await advance(page, 1.5);
+
+    const tapped = await page.evaluate(() => ({ view: { theta: window.__mew.view.theta, phi: window.__mew.view.phi, fit: window.__mew.view.fit }, step: window.__mew.stepView() }));
+    expect(tapped.view.fit, 'a tap no longer returns to the step view').toBeCloseTo(tapped.step.fit, 1);
+  });
+
+  test('picking up an edge-on piece turns the view; picking up a readable one does not', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+    const piece = 'p02';
+
+    const r = await page.evaluate((id) => {
+      const m = window.__mew, T = window.THREE;
+      const rt = m.RT[id], g = rt.ghost && rt.ghost.parent ? rt.ghost : rt.g;
+      const axis = new T.Vector3();
+      m.viewAxis(g, null, axis);
+      const settle = () => { for (let i = 0; i < 60; i++) m.tick(1 / 60); };
+      const stand = (dir) => { m.goView({ target: m.view.target.toArray(), theta: Math.atan2(dir.x, dir.z),
+        phi: 1.3, fit: m.view.fit }, 0.01); settle(); m.ctrl.userAt = 0; };
+
+      /* edge-on: looking along the face rather than at it */
+      stand(new T.Vector3(-axis.z, 0, axis.x).normalize());
+      const was = { theta: m.view.theta, phi: m.view.phi };
+      m.focusPart(rt); settle();
+      const turned = Math.abs(m.view.theta - was.theta) + Math.abs(m.view.phi - was.phi);
+
+      /* square on: already a good look at it */
+      m.goView(m.squareView(rt, true), 0.01); settle(); m.ctrl.userAt = 0;
+      const was2 = { theta: m.view.theta, phi: m.view.phi };
+      m.focusPart(rt); settle();
+      const turned2 = Math.abs(m.view.theta - was2.theta) + Math.abs(m.view.phi - was2.phi);
+      return { turned, turned2 };
+    }, piece);
+
+    expect(r.turned, 'picking up an edge-on piece left the camera edge-on').toBeGreaterThan(0.3);
+    expect(r.turned2, 'picking up a piece already in plain view moved the camera anyway').toBeLessThan(0.02);
+  });
+
+  test('squares up to the piece in your hand, not the one the manual suggests', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    const r = await page.evaluate(() => {
+      const m = window.__mew, T = window.THREE;
+      m.Build.setMode('free');                         // so more than one piece is pickable
+      const settle = () => { for (let i = 0; i < 60; i++) m.tick(1 / 60); };
+      const suggested = m.suggestedPart();
+      const inHand = m.RT['p02'];                      // a wall: faces along Z
+      const want = m.squareView(inHand, true);
+
+      /* stand edge-on to the wall, and leave BS.pick pointing nowhere, which is
+         the state focusPart is called in as a piece leaves the table */
+      m.goView({ target: m.view.target.toArray(), theta: want.theta + Math.PI / 2,
+                 phi: 1.4, fit: m.view.fit }, 0.01);
+      settle(); m.ctrl.userAt = 0; m.BS.pick = null;
+
+      m.focusPart(inHand); settle();
+      const cam = new T.Vector3().copy(m.camera.position).sub(m.view.target).normalize();
+      const axis = new T.Vector3();
+      m.viewAxis(inHand.ghost, cam, axis);
+      return { deg: Math.acos(Math.min(1, Math.abs(axis.dot(cam)))) * 180 / Math.PI,
+               suggested: suggested && suggested.def.id };
+    });
+
+    expect(r.suggested, 'the manual suggests the same piece, so this proves nothing')
+      .not.toBe('p02');
+    expect(r.deg, `${r.deg.toFixed(0)} degrees off the piece that was picked up`).toBeLessThan(35);
+  });
+
+  test('reads the same axis twice, and a world one for a kit modelled square', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    const r = await page.evaluate(() => {
+      const m = window.__mew, T = window.THREE;
+      const read = () => Object.keys(m.RT).map(id => {
+        const rt = m.RT[id], g = rt.ghost && rt.ghost.parent ? rt.ghost : rt.g, n = new T.Vector3();
+        return m.viewAxis(g, null, n) ? [n.x.toFixed(3), n.y.toFixed(3), n.z.toFixed(3)].join() : null;
+      });
+      const a = read(), b = read();
+      const axisLike = a.filter(v => v && v.split(',').filter(c => Math.abs(+c) > 0.9).length === 1).length;
+      return { same: a.join('|') === b.join('|'), axisLike, total: a.length, missing: a.filter(v => !v).length };
+    });
+
+    expect(r.missing, 'pieces with no axis at all').toBe(0);
+    expect(r.same, 'the same piece answered differently on two reads').toBe(true);
+    /* the kit is modelled square to the desk, so an answer that is mostly
+       45-degree diagonals means ties are being settled by list order */
+    expect(r.axisLike / r.total, `only ${r.axisLike} of ${r.total} pieces resolved to a world axis`)
+      .toBeGreaterThan(0.9);
+  });
+
+  test('the step card gets out of the way of the shot', async ({ page }) => {
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    /* the coach card is positioned dead centre of the stage, which is exactly
+       where a square-up puts the piece */
+    await page.evaluate(() => { window.__mew.coachShow(); });
+    await page.waitForTimeout(120);
+    expect(await page.locator('#coach').isVisible(), 'the card never came up, so this proves nothing').toBe(true);
+
+    await page.keyboard.press('f');
+    await page.waitForTimeout(500);
+    expect(await page.locator('#coach').isVisible(), 'the card is still sitting over the piece').toBe(false);
+  });
+
+  test('never ends up under the desk, overhead, or too close to see anything', async ({ page }) => {
+    test.setTimeout(150_000);
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    const bad = await page.evaluate(() => {
+      const m = window.__mew, out = [];
+      for (let st = 0; st < m.STEPS.length; st++) {
+        m.BS.step = st;
+        const sf = m.stepView().fit, floor = sf * m.SQUARE_ROOM;
+        for (const id of m.STEPS[st].parts) {
+          const rt = m.RT[id]; if (!rt) continue;
+          const v = m.squareView(rt, true);
+          if (!v) { out.push({ id, why: 'asked for a square-up and got nothing' }); continue; }
+          if (v.phi < m.SQUARE_PHI[0] - 1e-6 || v.phi > m.SQUARE_PHI[1] + 1e-6) out.push({ id, why: 'phi ' + v.phi.toFixed(2) });
+          if (v.fit < Math.max(3.6, floor) - 1e-6) out.push({ id, why: 'fit ' + v.fit.toFixed(1) + ' inside the floor ' + floor.toFixed(1) });
+          /* the whole promise is a closer look than the step's own view */
+          if (v.fit > sf * 0.8) out.push({ id, why: 'fit ' + v.fit.toFixed(1) + ' barely closer than the step view ' + sf.toFixed(1) });
+          if (!isFinite(v.target[0] + v.target[1] + v.target[2])) out.push({ id, why: 'target is not a point' });
+        }
+      }
+      return out;
+    });
+
+    expect(bad, 'square-up shots outside their own bounds: ' +
+      bad.slice(0, 8).map(b => b.id + ' — ' + b.why).join('; ')).toEqual([]);
+  });
+
+  /* No size floor here, and that is deliberate. A screw cannot be both large
+     on screen and shown in the thing it screws into, and it is the second that
+     tells you where it goes -- the smallest pieces come out at a couple of
+     percent of the stage and that is the right answer. What a framing shot does
+     owe you is that the piece is all there and in the middle of it. */
+  test('puts the piece on screen, whole, and in the middle of the shot', async ({ page }) => {
+    test.setTimeout(150_000);
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    const r = await page.evaluate(() => {
+      const m = window.__mew, T = window.THREE, out = [];
+      for (const id of m.STEPS[0].parts.concat(m.STEPS[1].parts)) {
+        const rt = m.RT[id]; if (!rt) continue;
+        const v = m.squareView(rt, true); if (!v) continue;
+        m.goView(v, 0.01);
+        for (let i = 0; i < 40; i++) m.tick(1 / 60);
+        const g = rt.ghost && rt.ghost.parent ? rt.ghost : rt.g;
+        g.updateMatrixWorld(true);
+        const xs = [], ys = [];
+        let on = 0, n = 0;
+        g.traverse(o => {
+          if (!o.isMesh || o.isInstancedMesh) return;
+          const p = o.geometry.attributes.position; if (!p) return;
+          const stride = Math.max(1, Math.ceil(p.count / 40));
+          for (let i = 0; i < p.count; i += stride) {
+            const q = new T.Vector3().fromBufferAttribute(p, i).applyMatrix4(o.matrixWorld).project(m.camera);
+            n++; xs.push(q.x); ys.push(q.y);
+            if (Math.abs(q.x) <= 1 && Math.abs(q.y) <= 1 && q.z < 1) on++;
+          }
+        });
+        if (!n) continue;
+        out.push({ id, on: on / n,
+          cx: (Math.max(...xs) + Math.min(...xs)) / 2, cy: (Math.max(...ys) + Math.min(...ys)) / 2 });
+      }
+      return out;
+    });
+
+    expect(r.length, 'no pieces were measured').toBeGreaterThan(10);
+    const cropped = r.filter(x => x.on < 1);
+    expect(cropped, 'pieces hanging off the edge of a shot meant to frame them: ' +
+      cropped.map(x => `${x.id} ${(x.on * 100).toFixed(0)}% on screen`).join('; ')).toEqual([]);
+    /* in NDC, so 0.25 is an eighth of the way to the edge. The projection is
+       already nudged sideways to clear the tool rail, hence not zero. */
+    const adrift = r.filter(x => Math.abs(x.cx) > 0.25 || Math.abs(x.cy) > 0.25);
+    expect(adrift, 'pieces sitting off to one side of their own shot: ' +
+      adrift.map(x => `${x.id} at ${x.cx.toFixed(2)},${x.cy.toFixed(2)}`).join('; ')).toEqual([]);
+  });
+});
+
+/* ------------------------------------------------------------------ *
  * Window glass. Marcus's aunt asked for a way to tint it. Every pane in
  * the kit shares one material, so it is a single choice, the way a real
  * kit ships one colour of acrylic in the box.
