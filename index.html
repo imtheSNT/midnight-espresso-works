@@ -848,7 +848,7 @@ body.phone-l.pbook-open .stage-hint{max-width:calc(100% - var(--offw,0px) - 34vw
         <button data-cam="normal" aria-pressed="true">Normal</button>
         <button data-cam="quick" aria-pressed="false">Quick</button>
       </div>
-      <p class="menu-note">Gentle turns slower and stops the moment you lift your finger or pencil. Hold the recentre button under the model &mdash; or press F &mdash; to face the piece you are placing.</p>
+      <p class="menu-note">Gentle turns slower and stops the moment you lift your finger or pencil. The framing button beside the model &mdash; or a hold on recentre, or F &mdash; faces the piece you are placing.</p>
       <div class="menu-sep"></div>
       <p class="menu-title">Shortcuts</p>
       <button class="menu-item" data-act="auto-step">Finish this step for me</button>
@@ -872,6 +872,7 @@ body.phone-l.pbook-open .stage-hint{max-width:calc(100% - var(--offw,0px) - 34vw
       </div>
     </div>
     <div class="turn" id="turn" role="group" aria-label="Turn the model">
+      <button type="button" id="btn-square" aria-label="Face the piece you are placing"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8.5V5.5a1.5 1.5 0 0 1 1.5-1.5h3M20 8.5V5.5A1.5 1.5 0 0 0 18.5 4h-3M4 15.5v3A1.5 1.5 0 0 0 5.5 20h3M20 15.5v3a1.5 1.5 0 0 1-1.5 1.5h-3"/><rect x="9.2" y="9.2" width="5.6" height="5.6" rx="1.2"/></svg></button>
       <button type="button" data-turn="-1" aria-label="Turn left. Hold to keep turning."><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4v6h6"/><path d="M3.8 14.5A8.6 8.6 0 1 0 5.9 6L3 10"/></svg></button>
       <button type="button" data-turn="0" aria-label="Recenter the view. Hold to square up to the piece you are placing."><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
       <button type="button" data-turn="1" aria-label="Turn right. Hold to keep turning."><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 4v6h-6"/><path d="M20.2 14.5A8.6 8.6 0 1 1 18.1 6L21 10"/></svg></button>
@@ -13466,6 +13467,18 @@ const StageCtl = {
         if (dir) turnBy(dir * Math.PI / 4); else UI.resetView();
       });
     });
+    /* Squaring up has its own button, first in the pill so the three that were
+       already there keep the exact positions a player has learned. The hold on
+       the recentre button does the same thing and stays, but a hold is not
+       something anyone finds on their own -- Marcus's aunt would not have, and
+       she is who this feature is for. */
+    { const sq = $('#btn-square'); if (sq) {
+        let armed = false;
+        sq.addEventListener('pointerdown', e => { e.preventDefault(); armed = true; Sound.unlock(); try { sq.setPointerCapture(e.pointerId); } catch (err) { /* capture unsupported */ } });
+        sq.addEventListener('pointerup', () => { if (!armed) return; armed = false; Sound.click(); squareUp(true); });
+        sq.addEventListener('pointercancel', () => { armed = false; });
+        sq.addEventListener('keydown', e => { if (e.key !== 'Enter' && e.key !== ' ') return; e.preventDefault(); squareUp(true); });
+      } }
     /* a keyboard has room for the verb outright; F is where every 3D tool puts
        "frame what I am looking at" */
     document.addEventListener('keydown', e => {
@@ -14782,6 +14795,9 @@ function hudSync() {
     const pw = dock.querySelector('[data-hud=power]'); if (pw) pw.hidden = ROOM.on;
     const ou = dock.querySelector('[data-hud=outside]'); if (ou) ou.hidden = !ROOM.on;
   }
+  /* no piece left to face once the kit is finished */
+  const sq = document.getElementById('btn-square');
+  if (sq) sq.hidden = BS.show;
 }
 function hudInit() {
   const chip = document.getElementById('hud-chip');

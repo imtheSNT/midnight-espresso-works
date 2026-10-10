@@ -76,6 +76,7 @@ What's covered:
 | Tools | Press-and-hold opens the tool wheel centred on the touch |
 | Camera | Squaring up faces the piece, frames it whole and centred, and never goes under the desk or too close to see anything |
 | Camera | A piece with no face is framed without spinning the view; one already in plain sight is left alone |
+| Camera | The square-up button takes one tap, goes when the kit is finished, and the four camera buttons still fit a phone held sideways |
 | Budget | The finished kit stays under 950 draw calls and 400k triangles on a phone |
 | Café | The door is in plain sight rather than behind a tab; the room stays shut until the kit is done, opens on every seat, and puts the front of the building back on the way out |
 | Long game | All 322 pieces build to the final step; progress survives a reload; the finale plays and can always be skipped |
@@ -150,9 +151,12 @@ pace, so testing the strip rule means dispatching with no pause at all.
 
 ### Squaring up to a piece
 
-Hold the recentre button, or press **F**, and the camera turns to face the piece
-you are placing. One rule decides the angle: look down the direction the piece's
-own vertices vary least along. That is a plate's normal and a post's broadside,
+Tap the framing button at the left of the camera cluster &mdash; or hold the
+recentre button, or press **F** &mdash; and the camera turns to face the piece
+you are placing. The button went in first in the row so the three that were
+already there keep the exact positions a player has learned; the cluster is
+right-anchored, so nothing moved. One rule decides the angle: look down the
+direction the piece's own vertices vary least along. That is a plate's normal and a post's broadside,
 both from the same line of code.
 
 Least *variance*, not least width. Measured across all 322 pieces, the narrowest
@@ -276,10 +280,10 @@ a CDN would open to a blank window on a plane.
       readable instructions panel on a phone held sideways. All of it still
       wants trying on real hardware: every measurement here was taken under
       software rendering, which says nothing about how it feels.
-- [x] **Squaring up to a piece** — hold the recentre button or press F to face
-      the piece you are placing; the camera also corrects itself when a piece is
-      edge-on. Covered by tests, and the same on desktop and touch apart from
-      the keyboard shortcut.
+- [x] **Squaring up to a piece** — a button in the camera cluster, a hold on
+      recentre, or F; the camera also corrects itself when a piece is edge-on.
+      Covered by tests, and the same on desktop and touch apart from the
+      keyboard shortcut.
 - [ ] **Store releases** — `desktop/` wraps the kit for Steam. iOS and Android
       need Xcode and Android Studio on your own machine.
 
