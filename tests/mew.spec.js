@@ -913,6 +913,56 @@ test.describe('furnishing the café', () => {
   });
 });
 
+/* ------------------------------------------------------------------ *
+ * Marcus: "the ending video still freezes when the machine cuts on and
+ * it's not smooth, but once it pans out it's very smooth." three.js
+ * counts only visible lights, so switching six point lights on changed
+ * the program every material needed and the renderer compiled a new set
+ * inside one frame.
+ * ------------------------------------------------------------------ */
+test.describe('powering the machine up', () => {
+  test('does not recompile the scene, so the finale does not stall', async ({ page }) => {
+    test.setTimeout(300_000);
+    await openKit(page, { viewport: { width: 900, height: 620 }, render: true });
+    await openBoxAndLayOut(page);
+    await buildWholeKit(page);
+    await advance(page, 0.5);
+    await page.waitForTimeout(800);
+
+    const r = await page.evaluate(async () => {
+      const m = window.__mew, ren = m.renderer;
+      const frame = () => new Promise(res => requestAnimationFrame(() => {
+        m.tick(1 / 60); ren.render(m.scene, m.camera); res();
+      }));
+      for (let i = 0; i < 6; i++) await frame();   // settle, and let boot-time compiling finish
+
+      const before = {
+        programs: ren.info.programs.length,
+        litLeds: m.LIGHTS3D.leds.filter(l => l.visible).length,
+        maxIntensity: Math.max(...m.LIGHTS3D.leds.map(l => l.intensity)),
+      };
+
+      m.SIM.powered = true; m.SIM.powerAt = m.SIM.time;
+      for (let i = 0; i < 8; i++) await frame();
+      const after = { programs: ren.info.programs.length };
+      return { before, after };
+    });
+
+    /* The lights live in the scene whether lit or not: that is what keeps the
+       program set stable. If they are hidden while off, this is 0 and the
+       compile is merely deferred to the worst possible moment. */
+    expect(r.before.litLeds, 'the LED lights leave the scene when off, so the shaders recompile when they return').toBeGreaterThan(0);
+    expect(r.before.maxIntensity, 'an unpowered kit is lighting its LEDs').toBe(0);
+    /* Not zero: a stray shader or two can first render at power-up without
+       anyone noticing. The bug was 46 compiled inside one frame, which cost
+       2065ms. A handful is noise; a jump of that size is the freeze returning.
+       Run on its own this reads 0; in the full suite it has read 1. */
+    expect(r.after.programs - r.before.programs,
+      'powering up compiled a batch of new shaders, which is the stall Marcus saw')
+      .toBeLessThanOrEqual(4);
+  });
+});
+
 test.describe('the long game', () => {
   test('the whole kit builds, every step, to the end', async ({ page }) => {
     const { errors } = await openKit(page);
