@@ -7319,8 +7319,21 @@ function initMaterials() {
   M.ghostXray = new T.MeshBasicMaterial({ color: col('#ff9a4d'), transparent: true, opacity: 0.16, depthWrite: false, depthTest: false });
   M.ghostXrayHot = new T.MeshBasicMaterial({ color: col('#5fd1c6'), transparent: true, opacity: 0.22, depthWrite: false, depthTest: false });
   M.ghostHot = new T.MeshBasicMaterial({ color: col('#5fd1c6'), transparent: true, opacity: 0.55, depthWrite: false });
-  M.ghostLine = new T.LineBasicMaterial({ color: col('#ff8a3d'), transparent: true, opacity: 0.95, depthWrite: false });
-  M.ghostLineHot = new T.LineBasicMaterial({ color: col('#5fd1c6'), transparent: true, opacity: 0.9, depthWrite: false });
+  /* The ghost's outline is near-black, not the warm orange everything else about
+     it is, and that is the one thing that makes it findable. Measured by
+     rendering the same frame with the ghost shown and hidden and diffing the
+     pixels: the orange cleared the 3.0 contrast floor against 3-6% of the
+     backgrounds it actually lands on, because a warm wash over warm wood never
+     can. #1a0f07 is a shade of the kit's own edge brown dark enough to clear 3.0
+     against the darkest tenth of those backgrounds -- 3.20 on the cutting mat,
+     4.95 on the pale counter -- and against 92% and 97% of them outright.
+     Lighter browns fail on the counter; a cream outline fails the other way
+     round, on the mat. It does not pulse and it does not dim: a line at 0.28
+     alpha is a grey smudge whatever colour it is, and the fill is what pulses.
+     It stays the same colour when the piece goes hot, so the line keeps saying
+     "this shape" while the fill says "yes, here". */
+  M.ghostLine = new T.LineBasicMaterial({ color: col('#1a0f07'), transparent: true, opacity: 1, depthWrite: false });
+  M.ghostLineHot = new T.LineBasicMaterial({ color: col('#1a0f07'), transparent: true, opacity: 1, depthWrite: false });
   [M.bass, M.walnut, M.bassShell, M.walnutShell, M.teal, M.cream].forEach(woodShade);
 }
 
@@ -12169,10 +12182,36 @@ function updateGhosts() {
     const rt = RT[id];
     if (id === dragging) continue;
     const show = focus === rt || (DECOR.focus === id && !BS.show && !BS.done.has(id) && document.body.classList.contains('decor-open'));
-    if (show) setGhostMat(rt, false);
+    if (show) { ghostEdges(rt.ghost); setGhostMat(rt, false); }
     rt.ghost.visible = show;
   }
   if (!dragging) beaconFor(focus);
+}
+/* Draw the outline on the ghost the first time it is shown.
+
+   It had none. Measured across the ghost's own boundary, the median contrast
+   was 1.03: the shape had no edge at all. M.ghostLine existed but ghostClone
+   only copied line segments the source already carried, and a kit piece gets
+   its edges from addEdges after the ghost is cloned, so a ghost never had any.
+   The BackSide rim was no substitute -- its 0.07-unit offset works out at 0.93
+   of a pixel at the step view, so it is a third wash over the same silhouette
+   rather than a halo round it.
+
+   Built on first show rather than at boot: every one of the 322 pieces has a
+   ghost, and updateGhosts only ever shows one. Doing this in the ghost builder
+   would be 322 EdgesGeometry passes on a first frame that already takes two and
+   a half seconds. */
+function ghostEdges(gh) {
+  if (gh.userData.edged) return;
+  gh.userData.edged = true;
+  const meshes = [];
+  gh.traverse(o => { if (o.isMesh && !o.isInstancedMesh && !o.userData.xray && !o.userData.rim) meshes.push(o); });
+  meshes.forEach(o => {
+    const e = new T.LineSegments(new T.EdgesGeometry(o.geometry, 25), M.ghostLine);
+    e.raycast = () => {};
+    e.renderOrder = 8;          /* above the x-ray wash, which would otherwise paint over it */
+    o.add(e);
+  });
 }
 let BEACON = null, TRING = null;
 function beaconFor(rt) {
@@ -12198,7 +12237,7 @@ function ghostFX() {
   const t = SIM.time;
   if (BEACON && BEACON.visible) BEACON.position.copy(BEACON.userData.base).y += 0.22 * Math.sin(t * 4.2);
   const since = BEACON && BEACON.visible ? t - BEACON.userData.t0 : 99, k = since < 2.4 ? 0.5 + 0.5 * Math.sin(since * 7.5) : 0.62 + 0.38 * Math.sin(t * 3.2);
-  M.ghost.opacity = 0.42 + 0.22 * k; M.ghostXray.opacity = 0.2 + 0.16 * k; M.ghostLine.opacity = 0.8 + 0.2 * k; M.ghostRim.opacity = 0.75 + 0.25 * k;
+  M.ghost.opacity = 0.42 + 0.22 * k; M.ghostXray.opacity = 0.2 + 0.16 * k; M.ghostRim.opacity = 0.75 + 0.25 * k;
   if (TRING && TRING.visible) { const s = TRING.userData.r * (1 + 0.12 * Math.sin(t * 3.2)); TRING.scale.set(s, s, s); TRING.material.opacity = 0.4 + 0.4 * k; }
 }
 
@@ -12959,8 +12998,16 @@ const Build = {
     }
     const dragging = BS.drag && BS.drag.started;
     const pulse = 0.5 + 0.5 * Math.sin(SIM.time * 3.4);
-    M.ghost.opacity = dragging ? 0.22 : 0.08 + 0.1 * pulse;
-    M.ghostLine.opacity = dragging ? 0.6 : 0.28 + 0.34 * pulse;
+    /* The fill was 0.08 to 0.18 while you were not holding anything, which is
+       exactly when you are looking for where the piece goes; ghostFX sets it
+       to 0.42-0.64 a few lines earlier and this overrode it. Doubled, not
+       restored: the outline below is what gives the shape its edge now, so the
+       fill only has to say "something belongs here". */
+    M.ghost.opacity = dragging ? 0.22 : 0.17 + 0.13 * pulse;
+    /* The outline used to be dimmed to 0.28 here whenever nothing was in hand,
+       which is exactly the state you are in while looking for where a piece
+       goes. It is left alone now: the glow is the fill's job, the shape is the
+       line's, and a line that fades is no use as either. */
   },
   setGlass(i) {
     const n = Math.max(0, Math.min(GLASS_TINTS.length - 1, i | 0));
@@ -14995,7 +15042,7 @@ function boot() {
   // handle for automated checks of this test build
   hudInit();
   setTimeout(() => { if (!BS.show && BS.unboxed && !BS.boxing) coachShow(); }, 2200);
-  window.__mew = { GLASS_TINTS, applyGlass, wheelSlop, WHEEL_SLOP, squareView, squareUp, squareTarget, suggestedPart, viewAxis, SQUARE_TILT, SQUARE_PHI, SQUARE_POOR, SQ_TIE, SQ_DECISIVE, SQUARE_ROOM, SQ_DIRS, focusPart, pbookShow, strictNext, hudSync, coachShow, sheetShow, VOFF, CINE, IBL, cineReveal, cineTour, cineStop, cineUniforms, postRender, setAmbience, HERO_VIEW, tick: dt => { cineTick(dt); hudTick(dt); updateView(dt); Build.update(dt); envTick(dt); updateSim(dt); UI.update(dt); }, MOTES, STEAM, POST, postLook, toolDriver, get stageW() { return stageW; }, get stageH() { return stageH; }, TABLE, tableDown, stageTap, stepView, DM, MURAL, BOOK, bookRead, UI, TABLE, tableLayout, BOX, boxIntro, boxOpen, boxFinish, toolSwing, TOOLVIS, ENV, envShow, PIECE, Wheel, ctrl, ROOM, ROOM_VIEWS, enterRoom, exitRoom, roomView, GLOWS, LIGHTS3D, FEATURES, CAFE, ASM, benchFocus: () => benchFocus(), STEPS, WL, WX, WY, MECH, OWL, DM, ART_TEX, WHEEL_TOOLS, finishInstant, ctrl, Wheel, CAM, turnBy, get tween() { return viewTween; }, BS, RT, SIM, Build, UI, Wire, view, renderer, camera, scene, layers, goView };
+  window.__mew = { GLASS_TINTS, applyGlass, wheelSlop, WHEEL_SLOP, squareView, squareUp, squareTarget, suggestedPart, viewAxis, ghostEdges, updateGhosts, SQUARE_TILT, SQUARE_PHI, SQUARE_POOR, SQ_TIE, SQ_DECISIVE, SQUARE_ROOM, SQ_DIRS, focusPart, pbookShow, strictNext, hudSync, coachShow, sheetShow, VOFF, CINE, IBL, cineReveal, cineTour, cineStop, cineUniforms, postRender, setAmbience, HERO_VIEW, tick: dt => { cineTick(dt); hudTick(dt); updateView(dt); Build.update(dt); envTick(dt); updateSim(dt); UI.update(dt); }, MOTES, STEAM, POST, postLook, toolDriver, get stageW() { return stageW; }, get stageH() { return stageH; }, TABLE, tableDown, stageTap, stepView, DM, MURAL, BOOK, bookRead, UI, TABLE, tableLayout, BOX, boxIntro, boxOpen, boxFinish, toolSwing, TOOLVIS, ENV, envShow, PIECE, Wheel, ctrl, ROOM, ROOM_VIEWS, enterRoom, exitRoom, roomView, GLOWS, LIGHTS3D, FEATURES, CAFE, ASM, benchFocus: () => benchFocus(), STEPS, WL, WX, WY, MECH, OWL, DM, ART_TEX, WHEEL_TOOLS, finishInstant, ctrl, Wheel, CAM, turnBy, get tween() { return viewTween; }, BS, RT, SIM, Build, UI, Wire, view, renderer, camera, scene, layers, goView };
 }
 
 main();

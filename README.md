@@ -77,6 +77,7 @@ What's covered:
 | Camera | Squaring up faces the piece, frames it whole and centred, and never goes under the desk or too close to see anything |
 | Camera | A piece with no face is framed without spinning the view; one already in plain sight is left alone |
 | Camera | The square-up button takes one tap, goes when the kit is finished, and the four camera buttons still fit a phone held sideways |
+| Outline | The ghost on show has an outline, dark enough to clear 3.0 contrast on both the mat and the counter, drawn above the x-ray wash, and not dimmed while you look for the piece |
 | Budget | The finished kit stays under 950 draw calls and 400k triangles on a phone |
 | Café | The door is in plain sight rather than behind a tab; the room stays shut until the kit is done, opens on every seat, and puts the front of the building back on the way out |
 | Long game | All 322 pieces build to the final step; progress survives a reload; the finale plays and can always be skipped |
@@ -148,6 +149,44 @@ can only overshoot by one frame's worth.
 The same thinking applies to the screwdriver from the other direction: there, a
 short `setTimeout` lands near 25ms under load, which is a perfectly safe swirling
 pace, so testing the strip rule means dispatching with no pause at all.
+
+### The outline that shows where a piece goes
+
+Marcus's aunt said she could not see it. She was right, and the reason was
+structural rather than cosmetic: **the ghost had no outline at all.**
+`ghostClone` only copies line segments the source mesh already carries, and a
+kit piece gets its edges from `addEdges` *after* its ghost is cloned — so no
+ghost ever had any. The BackSide rim was no substitute either; its 0.07-unit
+offset works out at 0.93 of a pixel at the step view, which makes it a third
+wash over the same silhouette rather than a halo around it.
+
+Measured by rendering the same frame with the ghost shown and hidden and
+diffing the pixels: the warm orange cleared the 3.0 non-text contrast floor
+against **3–6%** of the backgrounds it actually lands on, and across its own
+boundary the median contrast was **1.03**. Three translucent warm washes over
+warm wood is a problem with no answer in colour — an earlier attempt at
+recolouring stalled at 2.18.
+
+An outline is a different problem. `#1a0f07`, a shade of the kit's own edge
+brown, clears 3.0 against **92%** of the backgrounds on the dark cutting mat and
+**97%** on the pale counter, with the darkest tenth still at 3.20 and 4.95. A
+cream outline fails the other way round. It does not pulse and it does not dim:
+a line at 0.28 alpha is a grey smudge whatever colour it is.
+
+The fill was separately at fault. `ghostFX` sets it to 0.42–0.64 and then
+`Build.update`, a few lines later, overrode that to **0.08–0.18 whenever nothing
+was in hand** — which is exactly the state you are in while looking for where a
+piece goes. It is 0.17–0.30 now: doubled, not restored, because the outline is
+what gives the shape its edge and the fill only has to say something belongs
+here.
+
+Outlines are built the first time a ghost is shown, not at boot. All 322 pieces
+have a ghost; `updateGhosts` only ever shows one or two.
+
+The tests for this are arithmetic and structure, not pixels, and deliberately
+so: a pixel measurement of it would not hold still between runs, because the
+fill rides a sine and the quality ladder changes the pixel ratio under load.
+What they pin is what was actually broken.
 
 ### Squaring up to a piece
 
