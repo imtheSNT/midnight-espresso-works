@@ -848,7 +848,7 @@ body.phone-l.pbook-open .stage-hint{max-width:calc(100% - var(--offw,0px) - 34vw
         <button data-cam="normal" aria-pressed="true">Normal</button>
         <button data-cam="quick" aria-pressed="false">Quick</button>
       </div>
-      <p class="menu-note">Gentle turns slower and stops the moment you lift your finger or pencil.</p>
+      <p class="menu-note">Gentle turns slower and stops the moment you lift your finger or pencil. Hold the recentre button under the model &mdash; or press F &mdash; to face the piece you are placing.</p>
       <div class="menu-sep"></div>
       <p class="menu-title">Shortcuts</p>
       <button class="menu-item" data-act="auto-step">Finish this step for me</button>
@@ -873,7 +873,7 @@ body.phone-l.pbook-open .stage-hint{max-width:calc(100% - var(--offw,0px) - 34vw
     </div>
     <div class="turn" id="turn" role="group" aria-label="Turn the model">
       <button type="button" data-turn="-1" aria-label="Turn left. Hold to keep turning."><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4v6h6"/><path d="M3.8 14.5A8.6 8.6 0 1 0 5.9 6L3 10"/></svg></button>
-      <button type="button" data-turn="0" aria-label="Recenter the view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
+      <button type="button" data-turn="0" aria-label="Recenter the view. Hold to square up to the piece you are placing."><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
       <button type="button" data-turn="1" aria-label="Turn right. Hold to keep turning."><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 4v6h-6"/><path d="M20.2 14.5A8.6 8.6 0 1 1 18.1 6L21 10"/></svg></button>
     </div>
     <button class="hud-chip" id="hud-chip" type="button" aria-label="Open the instructions"><span class="hc-k" id="hc-k"></span><span class="hc-t" id="hc-t"></span><i class="hc-bar" aria-hidden="true"><b id="hc-fill"></b></i></button>
@@ -8869,7 +8869,15 @@ function focusPart(rt) {
   if (a && ASM[a]) {
     const key = (rt.def.install ? 'i:' : 'b:') + a;
     if (key !== benchKey) { benchKey = key; goView(rt.def.install ? ASM[a].installView : ASM[a].benchView, 0.8, ADVISORY); }
-  } else if (benchKey) { benchKey = null; goView(stepView(), 0.8, ADVISORY); }
+    return;
+  }
+  if (benchKey) { benchKey = null; goView(stepView(), 0.8, ADVISORY); return; }
+  /* Anything not built on the bench used to get no reframing at all: the
+     step's wide view, from whatever angle you happened to be at, which for a
+     piece seen edge-on is nothing to aim with. Square up to it instead -- only
+     when the angle is actually poor, and keeping the player's own distance, so
+     it is a turn of the model rather than one more zoom that fights you. */
+  squareUp(false, rt);
 }
 function benchFocus() {
   benchMark();
@@ -8883,6 +8891,201 @@ function benchFocus() {
   /* `far` is what kept dragging the view back: once the player had moved away
      from the bench, every pick counted as far and re-framed it. Advisory now. */
   if (key !== benchKey || (far && !(viewTween && viewTween.to && viewTween.to.t.distanceTo(_w1) < 0.6))) { benchKey = key; goView(v, 0.9, ADVISORY); }
+}
+
+/* ===== Squaring up to a piece =====
+   While you are placing a piece, the angle worth having is the one that shows
+   the most of it: a plate face-on, a post or a stack of gears broadside. Those
+   are one instruction -- look down the direction the piece varies least in --
+   so there is a single rule here rather than a taxonomy of shapes.
+
+   Least *variance*, not least width, and that distinction is the whole thing.
+   Measured over all 322 pieces, picking the narrowest direction aimed the
+   compound gear train down a 45-degree diagonal: it is a 2.35-tall stack only
+   0.6 across, so the two widths either side of it tied to three decimal places
+   and the answer came out of the order of a list. Variance weights the bulk of
+   the material instead of one stray vertex, and the same stack then reads
+   (0, 0, -1) -- square across it. A service post comes out broadside, a window
+   pane face-on, a floor plate from above.
+
+   Where the piece genuinely does not care -- a post looks the same from all
+   four sides, and ties to within a percent -- the tie goes to whichever
+   candidate is nearest where the camera already is. That keeps the move short
+   and stops the answer depending on the order of SQ_DIRS.
+
+   Two things keep the shot off a dead-flat elevation, which reads as a drawing
+   rather than a model: the camera is tilted SQUARE_TILT off the axis, the
+   three-quarter look a kit manual uses, pushed away from whichever end of the
+   swing it is nearest so a plate lying flat swings out of straight-down rather
+   than staying there; and phi is clamped so it never drops under the desk or
+   swings directly overhead.
+
+   `fit` is deliberately in the same family as benchView, glueView and screwView
+   -- max(floor, span * k + c), floor 3.6, k and c inside the range those three
+   already use. Three earlier attempts invented their own constants and all three
+   framed badly; one asked for fit 52 and left the camera looking along the desk
+   with nothing in shot. Distance is the hard part of a camera move, and it was
+   already solved in this file.
+
+   The one thing those three did not have to solve is a piece far smaller than
+   what it fits into. Squaring up to the microcontroller chip on its own span
+   gave a screen of bare wood with an orange speck in the middle: correctly
+   aimed, and useless, because where a piece goes is told by what is around it
+   and a chip is 0.4 units wide. So the shot also never closes in past
+   SQUARE_ROOM of whatever the step itself is framed at -- a figure already
+   tuned per step, and already smaller on a phone. */
+const SQUARE_TILT = 0.45;            /* radians off the axis: three-quarter, not elevation */
+const SQUARE_PHI = [0.34, 1.22];     /* never under the desk, never straight overhead */
+/* How far off square counts as bad enough to correct without being asked. The
+   complaint this answers is a piece seen *edge-on*, where the face you are
+   aiming at is a line and there is nothing to judge by; at 45 or 60 degrees off
+   you can still read it perfectly well. So the test is for edge-on, not for
+   square -- which also keeps the camera still most of the time. Measured by
+   opening each of the twelve steps at its own view and asking every piece of
+   that step: correcting anything not already within 35 degrees of square would
+   have turned the camera for 218 of the 322 pieces; this turns it for 44, and
+   for none at all on three of the twelve steps. */
+const SQUARE_POOR = Math.cos(1.22); /* more than ~70 degrees off the face: correct it */
+const SQ_TIE = 1.08;                 /* within 8% of the least variance counts as the same shot */
+/* How much flatter the chosen direction has to be than the next distinct one
+   before the piece counts as having a face at all. A plate clears this by a
+   mile -- the floor plate measures 758 times flatter along its normal than
+   along anything else, the brew pane infinitely so, and a service post five
+   times, broadside. A bulb, a bean jar, a turned foot, an owl's head do not:
+   they come within a percent or two of flat in every direction, because a round
+   thing has no face, and squaring up to one would spin the camera for no gain.
+   50 of the 322 measure that way. Below the threshold a square-up the player
+   asked for still frames the piece, from wherever they are standing; one they
+   did not ask for does nothing. */
+const SQ_DECISIVE = 1.35;
+const SQUARE_ROOM = 0.35;            /* never closer in than this much of the step's own framing */
+/* 13 directions: 3 axes, 6 edge, 4 corner -- one of each opposing pair. The
+   world axes alone would do for a piece modelled square to the desk, and most
+   are, but some pieces sit on a diagonal and a box drawn round those is thin in
+   no axis at all. Sampling is cheap enough not to care: this runs for one
+   piece, when asked.
+
+   Ordered plainest first -- axes, then edges, then corners -- because that is
+   also the tie-break. A tie settles on the candidate nearest the camera, and
+   where even that ties (nothing picked up yet, so no camera to prefer) the
+   first one wins, and the simplest answer is the one to land on: the kit is
+   modelled square to the desk, so a world axis is right far more often than a
+   45-degree one. Listed the other way round, every tie came out diagonal. */
+const SQ_DIRS = (() => {
+  const out = [], seen = new Set();
+  for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++) {
+    if (!x && !y && !z) continue;
+    if (seen.has([-x, -y, -z].join(','))) continue;
+    seen.add([x, y, z].join(','));
+    out.push(new T.Vector3(x, y, z));
+  }
+  out.sort((a, b) => (Math.abs(a.x) + Math.abs(a.y) + Math.abs(a.z)) - (Math.abs(b.x) + Math.abs(b.y) + Math.abs(b.z)));
+  return out.map(v => v.normalize());
+})();
+const _sqSum = new Float64Array(SQ_DIRS.length), _sqSq = new Float64Array(SQ_DIRS.length), _sqVar = new Float64Array(SQ_DIRS.length);
+const _sq1 = new T.Vector3(), _sq2 = new T.Vector3(), _sq3 = new T.Vector3(), _sq4 = new T.Vector3(), _sq5 = new T.Vector3();
+/* The direction to look from: the one the piece's own vertices vary least
+   along, written into `out`. `cam` is where the camera is now, used only to
+   settle ties. Returns how much flatter that direction is than the next
+   distinct one -- 1 for a piece with no face, Infinity for a flat plane, 0 when
+   there was nothing to measure. */
+function viewAxis(root, cam, out) {
+  const n = SQ_DIRS.length;
+  _sqSum.fill(0); _sqSq.fill(0);
+  let count = 0;
+  root.updateMatrixWorld(true);
+  root.traverse(o => {
+    if (!o.isMesh || o.isInstancedMesh) return;
+    const pos = o.geometry.attributes.position;
+    if (!pos || !pos.count) return;
+    const stride = Math.max(1, Math.ceil(pos.count / 160));
+    for (let i = 0; i < pos.count; i += stride) {
+      _sq3.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+      count++;
+      for (let k = 0; k < n; k++) { const t = _sq3.dot(SQ_DIRS[k]); _sqSum[k] += t; _sqSq[k] += t * t; }
+    }
+  });
+  if (count < 4) return 0;
+  let lo = Infinity;
+  for (let k = 0; k < n; k++) {
+    const mean = _sqSum[k] / count;
+    const v = Math.max(0, _sqSq[k] / count - mean * mean);
+    _sqVar[k] = v;
+    if (v < lo) lo = v;
+  }
+  const tol = lo * SQ_TIE + 1e-9;
+  let best = -1, bestDot = -1, next = Infinity;
+  for (let k = 0; k < n; k++) {
+    if (_sqVar[k] > tol) { if (_sqVar[k] < next) next = _sqVar[k]; continue; }
+    const d = cam ? Math.abs(SQ_DIRS[k].dot(cam)) : 0;
+    if (d > bestDot) { bestDot = d; best = k; }
+  }
+  if (best < 0) return 0;
+  out.copy(SQ_DIRS[best]);
+  return next === Infinity ? 1 : lo > 1e-9 ? next / lo : Infinity;
+}
+/* The view that squares up to a piece. null means no move is wanted: either the
+   piece has no geometry to measure, or -- unless the player asked outright --
+   the camera is already square enough to it to leave alone.
+
+   `ask` is the whole difference between a help and a nuisance. A move the
+   player asked for frames the piece properly, distance and all. One they did
+   not keeps their own `fit`, so it is a turn of the model rather than a zoom:
+   small, and over before it can annoy. The zooms that had to be made advisory
+   earlier in this file were all the other kind. */
+function squareView(rt, ask) {
+  if (!rt || !view || !view.target) return null;
+  const g = rt.ghost && rt.ghost.parent ? rt.ghost : rt.g;
+  _sq4.copy(camera.position).sub(view.target);
+  const len = _sq4.length();
+  const cam = len > 1e-4 ? _sq4.divideScalar(len) : null;
+  const ratio = viewAxis(g, cam, _sq1);
+  if (!ratio) return null;
+  /* no face to square up to: frame it from where the player is, or, if they did
+     not ask, leave the camera alone entirely */
+  const face = ratio >= SQ_DECISIVE;
+  if (!face && !ask) return null;
+  partBox(g, _bx);
+  if (_bx.isEmpty()) return null;
+  _bx.getCenter(_sq2); _bx.getSize(_sq5);
+  let theta = view.theta, phi = view.phi;
+  if (face) {
+    if (cam) {
+      if (_sq1.dot(cam) < 0) _sq1.negate();                /* the near end of the axis */
+      if (!ask && _sq1.dot(cam) >= SQUARE_POOR) return null;
+    }
+    /* a piece lying flat has no horizontal direction to aim along, so the
+       player keeps the heading they chose and only the elevation changes */
+    const h = Math.hypot(_sq1.x, _sq1.z);
+    if (h > 0.02) theta = Math.atan2(_sq1.x, _sq1.z);
+    const phi0 = Math.acos(clamp(_sq1.y, -1, 1));
+    phi = clamp(phi0 < SQUARE_TILT ? phi0 + SQUARE_TILT : phi0 - SQUARE_TILT, SQUARE_PHI[0], SQUARE_PHI[1]);
+  }
+  const room = BS.show ? 0 : (stepView().fit || 0) * SQUARE_ROOM;
+  return { target: [_sq2.x, _sq2.y, _sq2.z], theta, phi,
+    fit: ask ? Math.max(3.6, room, _sq5.length() / 2 * 1.15 + 1.6) : view.fit };
+}
+/* what a square-up is about: the piece being worked on, else the one in hand,
+   else the one the manual wants next */
+function squareTarget() {
+  if (BS.show) return null;
+  if (BS.pending && RT[BS.pending]) return RT[BS.pending];
+  if (BS.pick && RT[BS.pick] && isAvailable(BS.pick)) return RT[BS.pick];
+  return suggestedPart();
+}
+function squareUp(ask, part) {
+  /* `part` matters: focusPart runs as a piece is picked up, before BS.pick has
+     caught up, so without it the camera would square to whichever piece the
+     manual happens to be suggesting rather than the one in your hand. */
+  const rt = part || squareTarget();
+  const v = rt && squareView(rt, ask);
+  if (!v) return false;
+  /* the coach card sits dead centre of the stage, which is exactly where the
+     piece is about to be. A pointerdown anywhere already dismisses it, so the
+     button is covered either way, but the keyboard shortcut is not. */
+  if (ask) coachHide();
+  goView(v, 0.8, ask ? undefined : ADVISORY);
+  return true;
 }
 
 /* ---------- brew module pieces ---------- */
@@ -13244,11 +13447,14 @@ const StageCtl = {
         e.preventDefault(); Sound.unlock();
         try { b.setPointerCapture(e.pointerId); } catch (err) { /* capture unsupported */ }
         spinning = false;
-        if (dir) timer = setTimeout(() => { spinning = true; spinStart(dir); }, 320);
+        /* The middle button's hold was unused, and squaring up is the one
+           camera move a player wants that the two arrows cannot reach: no new
+           chrome for it, and a tap still recentres exactly as before. */
+        timer = setTimeout(() => { spinning = true; if (dir) spinStart(dir); else if (squareUp(true)) Sound.click(); }, 320);
       });
       const end = e => {
         clearTimeout(timer);
-        if (!dir) { if (e.type === 'pointerup') { Sound.click(); UI.resetView(); } return; }
+        if (!dir) { if (!spinning && e.type === 'pointerup') { Sound.click(); UI.resetView(); } spinning = false; return; }
         if (spinning) { spinning = false; spinStop(); }
         else if (e.type === 'pointerup') { Sound.click(); turnBy(dir * Math.PI / 4); }
       };
@@ -13259,6 +13465,17 @@ const StageCtl = {
         e.preventDefault();
         if (dir) turnBy(dir * Math.PI / 4); else UI.resetView();
       });
+    });
+    /* a keyboard has room for the verb outright; F is where every 3D tool puts
+       "frame what I am looking at" */
+    document.addEventListener('keydown', e => {
+      if (e.key !== 'f' && e.key !== 'F') return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || ''))) return;
+      if (BS.show || CINE.busy) return;
+      e.preventDefault();
+      if (squareUp(true)) Sound.click();
     });
     $$('#cam-seg button').forEach(b => b.addEventListener('click', () => { setCamSpeed(b.dataset.cam); Sound.click(); }));
     setCamSpeed(CAM.speed);
@@ -14762,7 +14979,7 @@ function boot() {
   // handle for automated checks of this test build
   hudInit();
   setTimeout(() => { if (!BS.show && BS.unboxed && !BS.boxing) coachShow(); }, 2200);
-  window.__mew = { GLASS_TINTS, applyGlass, wheelSlop, WHEEL_SLOP, pbookShow, strictNext, hudSync, coachShow, sheetShow, VOFF, CINE, IBL, cineReveal, cineTour, cineStop, cineUniforms, postRender, setAmbience, HERO_VIEW, tick: dt => { cineTick(dt); hudTick(dt); updateView(dt); Build.update(dt); envTick(dt); updateSim(dt); UI.update(dt); }, MOTES, STEAM, POST, postLook, toolDriver, get stageW() { return stageW; }, get stageH() { return stageH; }, TABLE, tableDown, stageTap, stepView, DM, MURAL, BOOK, bookRead, UI, TABLE, tableLayout, BOX, boxIntro, boxOpen, boxFinish, toolSwing, TOOLVIS, ENV, envShow, PIECE, Wheel, ctrl, ROOM, ROOM_VIEWS, enterRoom, exitRoom, roomView, GLOWS, LIGHTS3D, FEATURES, CAFE, ASM, benchFocus: () => benchFocus(), STEPS, WL, WX, WY, MECH, OWL, DM, ART_TEX, WHEEL_TOOLS, finishInstant, ctrl, Wheel, CAM, turnBy, get tween() { return viewTween; }, BS, RT, SIM, Build, UI, Wire, view, renderer, camera, scene, layers, goView };
+  window.__mew = { GLASS_TINTS, applyGlass, wheelSlop, WHEEL_SLOP, squareView, squareUp, squareTarget, suggestedPart, viewAxis, SQUARE_TILT, SQUARE_PHI, SQUARE_POOR, SQ_TIE, SQ_DECISIVE, SQUARE_ROOM, SQ_DIRS, focusPart, pbookShow, strictNext, hudSync, coachShow, sheetShow, VOFF, CINE, IBL, cineReveal, cineTour, cineStop, cineUniforms, postRender, setAmbience, HERO_VIEW, tick: dt => { cineTick(dt); hudTick(dt); updateView(dt); Build.update(dt); envTick(dt); updateSim(dt); UI.update(dt); }, MOTES, STEAM, POST, postLook, toolDriver, get stageW() { return stageW; }, get stageH() { return stageH; }, TABLE, tableDown, stageTap, stepView, DM, MURAL, BOOK, bookRead, UI, TABLE, tableLayout, BOX, boxIntro, boxOpen, boxFinish, toolSwing, TOOLVIS, ENV, envShow, PIECE, Wheel, ctrl, ROOM, ROOM_VIEWS, enterRoom, exitRoom, roomView, GLOWS, LIGHTS3D, FEATURES, CAFE, ASM, benchFocus: () => benchFocus(), STEPS, WL, WX, WY, MECH, OWL, DM, ART_TEX, WHEEL_TOOLS, finishInstant, ctrl, Wheel, CAM, turnBy, get tween() { return viewTween; }, BS, RT, SIM, Build, UI, Wire, view, renderer, camera, scene, layers, goView };
 }
 
 main();

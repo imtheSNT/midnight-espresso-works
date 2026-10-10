@@ -49,7 +49,9 @@ npm test
 ```
 
 Tests run headless against software rendering so results are the same on every
-machine. That costs time: the full suite takes about thirteen minutes that way.
+machine. That costs time: 57 tests took 31 minutes that way on the machine this
+was last measured on, so take that as an order of magnitude rather than a
+promise and time it on yours.
 `npm run test:gpu` uses the real graphics card instead and is far quicker,
 though results then depend on the machine; `npm run test:headed` lets you watch
 them. For a quick loop, `npx playwright test -g "the tools"` runs one group.
@@ -72,6 +74,8 @@ What's covered:
 | Phone | The model stays visible beside the panel; the wiring board fits without scrolling |
 | Camera | A drag turns the model; the view can't flip under or over it; zoom stays in range |
 | Tools | Press-and-hold opens the tool wheel centred on the touch |
+| Camera | Squaring up faces the piece, frames it whole and centred, and never goes under the desk or too close to see anything |
+| Camera | A piece with no face is framed without spinning the view; one already in plain sight is left alone |
 | Budget | The finished kit stays under 950 draw calls and 400k triangles on a phone |
 | Café | The door is in plain sight rather than behind a tab; the room stays shut until the kit is done, opens on every seat, and puts the front of the building back on the way out |
 | Long game | All 322 pieces build to the final step; progress survives a reload; the finale plays and can always be skipped |
@@ -143,6 +147,45 @@ can only overshoot by one frame's worth.
 The same thinking applies to the screwdriver from the other direction: there, a
 short `setTimeout` lands near 25ms under load, which is a perfectly safe swirling
 pace, so testing the strip rule means dispatching with no pause at all.
+
+### Squaring up to a piece
+
+Hold the recentre button, or press **F**, and the camera turns to face the piece
+you are placing. One rule decides the angle: look down the direction the piece's
+own vertices vary least along. That is a plate's normal and a post's broadside,
+both from the same line of code.
+
+Least *variance*, not least width. Measured across all 322 pieces, the narrowest
+direction sent the compound gear train down a 45-degree diagonal — it is a stack
+2.35 tall and 0.6 across, so the two widths either side of it tie to three
+decimal places and the answer came out of the order of a list. Variance weights
+the bulk of the material rather than one stray vertex, and the stack then reads
+square across itself.
+
+Some pieces have no face at all. A bulb, a bean jar, an owl's head tie to within
+a percent in every direction, because a round thing has no face: 50 of the 322
+measure that way. Asking to square up to one frames it from where you are
+standing; it never spins the camera for nothing.
+
+The same thing happens without being asked when you pick up a piece, but only
+when the piece is close to **edge-on** — more than about 70 degrees off its own
+face, where what you are aiming at is a line. That is the whole difference
+between a help and a nuisance, and it is worth keeping. Opening each of the
+twelve steps at its own view and asking every piece of that step: correcting
+anything not already within 35 degrees of square would turn the camera for 218
+of the 322 pieces, which is the auto-camera people complain about. The edge-on
+test turns it for 44, and for none at all on three of the steps. An unasked move
+also keeps your own zoom, so it is a turn of the model rather than a lurch
+towards it.
+
+Distance was the part that went wrong three times before this landed, once
+asking for a `fit` of 52 and leaving the camera looking along the desk with
+nothing in shot. It is now in the same family as `benchView`, `glueView` and
+`screwView` — `max(floor, span * k + c)` — plus one floor those three never
+needed: never closer in than 35% of whatever the step itself is framed at. A
+microcontroller chip is 0.4 units wide, and framed on its own span it gave a
+screen of bare wood with an orange speck in it. Where a piece goes is told by
+what is around it.
 
 ### Why the glue brush takes a press before a loose piece
 
@@ -229,10 +272,14 @@ a CDN would open to a blank window on a plane.
 - [x] **Assembly modules** — 322 pieces across 12 steps, inside the 300–350
       target.
 - [x] **Mobile and tablet** — camera overhaul, radial tool wheel at the touch
-      point, flattened pencil response, and a readable instructions panel on a
-      phone held sideways. All of it still wants trying on real hardware: every
-      measurement here was taken under software rendering, which says nothing
-      about how it feels.
+      point, flattened pencil response, palm rejection for a stylus, and a
+      readable instructions panel on a phone held sideways. All of it still
+      wants trying on real hardware: every measurement here was taken under
+      software rendering, which says nothing about how it feels.
+- [x] **Squaring up to a piece** — hold the recentre button or press F to face
+      the piece you are placing; the camera also corrects itself when a piece is
+      edge-on. Covered by tests, and the same on desktop and touch apart from
+      the keyboard shortcut.
 - [ ] **Store releases** — `desktop/` wraps the kit for Steam. iOS and Android
       need Xcode and Android Studio on your own machine.
 
