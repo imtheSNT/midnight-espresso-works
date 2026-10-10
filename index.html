@@ -11390,7 +11390,15 @@ function updateSim(dt) {
   if (MECH.carousel) MECH.carousel.rotation.y = gv.angle;
   followHomes();
   /* LED point lights only take part in lighting while the kit is powered: seven fewer lights per pixel while you build */
-  if (LIGHTS3D.ledsOn !== SIM.powered) { LIGHTS3D.ledsOn = SIM.powered; LIGHTS3D.leds.forEach(l => { l.visible = SIM.powered; }); }
+  /* The LEDs stay in the scene whether they are lit or not. three.js counts
+     only visible lights, so hiding them meant every material was compiled
+     without them: switching six point lights on at the finale changed the
+     program for every material in the scene, and the renderer compiled 46 new
+     ones inside a single frame. Measured, that frame took 2065ms -- the freeze
+     Marcus saw exactly when the machine cuts on, after which it ran at ~10ms
+     again. updateLeds already drives intensity to zero when they are off, so
+     leaving them visible costs nothing on screen and keeps the program set
+     stable across the moment that matters most. */
   if (MECH.riser) MECH.riser.rotation.y = tC;
   if (MECH.beltMarkers.length) {
     const s = tC * 0.9, P = 2 * MECH.beltLen + TAU * 0.99, n = MECH.beltMarkers.length;
