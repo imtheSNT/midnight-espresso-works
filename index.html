@@ -11863,7 +11863,116 @@ function suggestedPart() {
   for (const id of ids) if (isAvailable(id) && !needsGlue(id)) return RT[id];
   return null;
 }
-function preseat(rt, out) { return out.set(0, rt.def.action === 'press' ? (rt.def.lift || 1.2) : 0.9, 0); }
+/* ===== How far a piece can be lifted before it goes in =====
+   Every piece used to be held the same distance above its seat and lowered
+   straight down, whether or not there was that much room. Measured against
+   real geometry -- rays from the piece's own surface at the seat, at the
+   moment the kit lets you place it, out to the distance the kit actually
+   lifts -- 114 of the 277 pieces that have anything placed around them cannot
+   rise that far without going through it. The four feet under the floor plate
+   are the plainest case: lifting one puts it inside the plate it bolts to.
+
+   So the lift is now whatever room there is, up to the old figure. A part that
+   drops into open air still swings in from 0.9 above; one that fits under
+   something comes in through the gap it actually has. Nothing about where you
+   aim changes, because the hold point only ever moves closer to the seat.
+
+   What this does NOT do is bring a piece in from the side. 91 of those 114
+   have a clear way in sideways and would be better for it -- a fascia pressed
+   on from the front, a foot offered up from below -- but the hold point would
+   then sit under or behind the machine, where it is harder to aim at, and
+   that is a change worth seeing before it ships rather than after.
+
+   Measured once per piece, against only the placed pieces near enough to be in
+   the way, and cached against the number of pieces down so it is re-read if
+   the surroundings change. */
+const INS_UP = new T.Vector3(0, 1, 0);
+const INS_EPS = 0.02, INS_MIN = 0.02, INS_POINTS = 128;
+const _insRay = new T.Raycaster(), _insO = new T.Vector3();
+const _insPts = [], _insNear = [], _insMeshes = [];
+const _insBox = new T.Box3(), _insB2 = new T.Box3();
+function insertLift(rt) { return rt.def.action === 'press' ? (rt.def.lift || 1.2) : 0.9; }
+function insertRoom(rt) {
+  const lift = insertLift(rt);
+  if (rt.insRoom !== undefined && rt.insAt === BS.done.size) return rt.insRoom;
+  rt.insAt = BS.done.size;
+  rt.insRoom = lift;
+  const g = rt.ghost;
+  if (!g || !BS.done.size) return rt.insRoom;
+  g.updateMatrixWorld(true);
+  partBox(g, _insBox);
+  if (_insBox.isEmpty()) return rt.insRoom;
+
+  /* Two readings, and the smaller wins.
+
+     Rays from the piece's own surface do nearly all of the work. They are the
+     honest question -- can every point on this piece travel that far up --
+     and they are the only thing that sees an interlocked part: a gear
+     threaded on an axle has nothing above its silhouette and still cannot
+     rise an inch. They cost, so they are a budget shared across the piece and
+     spent from the top down, where a blocked piece is usually blocked.
+
+     The box overhead is a second opinion that costs nothing, since the loop
+     below already has the box in hand. Be clear about its worth: measured
+     against a check that samples far more densely, it is the difference
+     between 34 pieces lifting into something and 32. It stays because it is
+     free and can only under-report the room, which is the safe way to be
+     wrong, not because it carries the method. */
+  let room = lift;
+  const ceiling = _insBox.max.y + lift + INS_EPS;
+  _insNear.length = 0;
+  for (const id of BS.done) {
+    const o = RT[id];
+    if (!o || !o.g || !o.g.visible) continue;
+    partBox(o.g, _insB2);
+    if (_insB2.isEmpty()) continue;
+    if (_insB2.max.y < _insBox.min.y || _insB2.min.y > ceiling) continue;
+    if (_insB2.max.x < _insBox.min.x || _insB2.min.x > _insBox.max.x) continue;
+    if (_insB2.max.z < _insBox.min.z || _insB2.min.z > _insBox.max.z) continue;
+    if (_insB2.min.y > _insBox.max.y) room = Math.min(room, _insB2.min.y - _insBox.max.y);
+    o.g.traverse(c => { if (c.isMesh && !c.isInstancedMesh) _insNear.push(c); });
+  }
+  if (!_insNear.length || room <= INS_MIN) { rt.insRoom = Math.max(INS_MIN, room); return rt.insRoom; }
+
+  _insMeshes.length = 0;
+  g.traverse(o => {
+    if (!o.isMesh || o.isInstancedMesh || o.userData.xray || o.userData.rim) return;
+    const p = o.geometry.attributes.position;
+    if (p && p.count) _insMeshes.push(o);
+  });
+  if (!_insMeshes.length) { rt.insRoom = Math.max(INS_MIN, room); return rt.insRoom; }
+  /* a budget across the whole piece, not per mesh: per mesh, a piece built
+     from a hundred little ones took 710ms to measure, which is a freeze you
+     would feel */
+  _insPts.length = 0;
+  /* and a cap on the meshes as well as the points per mesh. Two points each
+     across two hundred little meshes is four hundred rays, not sixty-four --
+     the timing belt is built that way and cost 76ms before this line. */
+  const every = Math.max(1, Math.ceil(_insMeshes.length / (INS_POINTS / 2)));
+  const per = Math.max(2, Math.floor(INS_POINTS / Math.ceil(_insMeshes.length / every)));
+  for (let k = 0; k < _insMeshes.length; k += every) {
+    const p = _insMeshes[k].geometry.attributes.position, mw = _insMeshes[k].matrixWorld;
+    const stride = Math.max(1, Math.ceil(p.count / per));
+    for (let i = 0; i < p.count; i += stride) _insPts.push(new T.Vector3().fromBufferAttribute(p, i).applyMatrix4(mw));
+  }
+  if (_insPts.length < 4) { rt.insRoom = Math.max(INS_MIN, room); return rt.insRoom; }
+  _insPts.sort((a, b) => b.y - a.y);
+  _insRay.near = 0;
+  for (const p of _insPts) {
+    if (room <= INS_MIN) break;
+    _insRay.far = room;
+    /* a hair off the surface: a piece seated flush against its neighbour has
+       points lying exactly on the neighbour's face, and without this every one
+       of them reads as blocked at nothing */
+    _insO.copy(p).addScaledVector(INS_UP, INS_EPS);
+    _insRay.set(_insO, INS_UP);
+    const h = _insRay.intersectObjects(_insNear, false);
+    if (h.length) room = Math.min(room, h[0].distance + INS_EPS);
+  }
+  rt.insRoom = Math.max(INS_MIN, room);
+  return rt.insRoom;
+}
+function preseat(rt, out) { return out.set(0, insertRoom(rt), 0); }
 function layerPos(rt) { return layers[rt.def.layer].position; }
 function anchorWorld(rt, out) { return out.copy(rt.anchor).add(layerPos(rt)).add(rt.state === 'tray' ? rt.home : rt.off); }
 function wantedTool() {
@@ -12182,7 +12291,11 @@ function updateGhosts() {
     const rt = RT[id];
     if (id === dragging) continue;
     const show = focus === rt || (DECOR.focus === id && !BS.show && !BS.done.has(id) && document.body.classList.contains('decor-open'));
-    if (show) { ghostEdges(rt.ghost); setGhostMat(rt, false); }
+    /* measure the room above it here rather than on the first pointer move of
+       a drag: the two priciest pieces in the kit take 25 and 79ms to measure,
+       which is a hitch you would feel mid-gesture and will not notice while a
+       step is opening */
+    if (show) { ghostEdges(rt.ghost); insertRoom(rt); setGhostMat(rt, false); }
     rt.ghost.visible = show;
   }
   if (!dragging) beaconFor(focus);
@@ -13063,7 +13176,12 @@ const Build = {
         const h = rt.hold;
         if (h.down) h.p = Math.min(1, h.p + rdt / 0.45);
         else if (h.p < 1) h.p = Math.max(0, h.p - rdt / 0.3);
-        { const gap = rt.def.mallet ? MALLET_GAP : 0; rt.off.set(rt.home.x, rt.home.y + gap + (preseat(rt, _w2).y - gap) * (1 - easeInOutCubic(h.p)), rt.home.z); }
+        /* a piece tapped home with the mallet stops MALLET_GAP short and is
+           knocked the rest of the way, so it has to start at least that far
+           out however little room the measurement found */
+        { const gap = rt.def.mallet ? MALLET_GAP : 0;
+          const top = Math.max(gap, preseat(rt, _w2).y);
+          rt.off.set(rt.home.x, rt.home.y + gap + (top - gap) * (1 - easeInOutCubic(h.p)), rt.home.z); }
         if (h.p >= 1) { rt.hold = null; if (rt.def.mallet) startMallet(rt); else partDone(rt, false, true); }
       }
       if (rt.state === 'screws') {
@@ -15126,7 +15244,7 @@ function boot() {
   // handle for automated checks of this test build
   hudInit();
   setTimeout(() => { if (!BS.show && BS.unboxed && !BS.boxing) coachShow(); }, 2200);
-  window.__mew = { GLASS_TINTS, applyGlass, wheelSlop, WHEEL_SLOP, squareView, squareUp, squareTarget, suggestedPart, viewAxis, ghostEdges, updateGhosts, CARRY, carryScan, carryFloor, carryClear, SQUARE_TILT, SQUARE_PHI, SQUARE_POOR, SQ_TIE, SQ_DECISIVE, SQUARE_ROOM, SQ_DIRS, focusPart, pbookShow, strictNext, hudSync, coachShow, sheetShow, VOFF, CINE, IBL, cineReveal, cineTour, cineStop, cineUniforms, postRender, setAmbience, HERO_VIEW, tick: dt => { cineTick(dt); hudTick(dt); updateView(dt); Build.update(dt); envTick(dt); updateSim(dt); UI.update(dt); }, MOTES, STEAM, POST, postLook, toolDriver, get stageW() { return stageW; }, get stageH() { return stageH; }, TABLE, tableDown, stageTap, stepView, DM, MURAL, BOOK, bookRead, UI, TABLE, tableLayout, BOX, boxIntro, boxOpen, boxFinish, toolSwing, TOOLVIS, ENV, envShow, PIECE, Wheel, ctrl, ROOM, ROOM_VIEWS, enterRoom, exitRoom, roomView, GLOWS, LIGHTS3D, FEATURES, CAFE, ASM, benchFocus: () => benchFocus(), STEPS, WL, WX, WY, MECH, OWL, DM, ART_TEX, WHEEL_TOOLS, finishInstant, ctrl, Wheel, CAM, turnBy, get tween() { return viewTween; }, BS, RT, SIM, Build, UI, Wire, view, renderer, camera, scene, layers, goView };
+  window.__mew = { GLASS_TINTS, applyGlass, wheelSlop, WHEEL_SLOP, squareView, squareUp, squareTarget, suggestedPart, viewAxis, ghostEdges, updateGhosts, CARRY, carryScan, carryFloor, carryClear, insertRoom, insertLift, preseat, SQUARE_TILT, SQUARE_PHI, SQUARE_POOR, SQ_TIE, SQ_DECISIVE, SQUARE_ROOM, SQ_DIRS, focusPart, pbookShow, strictNext, hudSync, coachShow, sheetShow, VOFF, CINE, IBL, cineReveal, cineTour, cineStop, cineUniforms, postRender, setAmbience, HERO_VIEW, tick: dt => { cineTick(dt); hudTick(dt); updateView(dt); Build.update(dt); envTick(dt); updateSim(dt); UI.update(dt); }, MOTES, STEAM, POST, postLook, toolDriver, get stageW() { return stageW; }, get stageH() { return stageH; }, TABLE, tableDown, stageTap, stepView, DM, MURAL, BOOK, bookRead, UI, TABLE, tableLayout, BOX, boxIntro, boxOpen, boxFinish, toolSwing, TOOLVIS, ENV, envShow, PIECE, Wheel, ctrl, ROOM, ROOM_VIEWS, enterRoom, exitRoom, roomView, GLOWS, LIGHTS3D, FEATURES, CAFE, ASM, benchFocus: () => benchFocus(), STEPS, WL, WX, WY, MECH, OWL, DM, ART_TEX, WHEEL_TOOLS, finishInstant, ctrl, Wheel, CAM, turnBy, get tween() { return viewTween; }, BS, RT, SIM, Build, UI, Wire, view, renderer, camera, scene, layers, goView };
 }
 
 main();

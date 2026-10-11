@@ -79,6 +79,7 @@ What's covered:
 | Camera | The square-up button takes one tap, goes when the kit is finished, and the four camera buttons still fit a phone held sideways |
 | Outline | The ghost on show has an outline, dark enough to clear 3.0 contrast on both the mat and the counter, drawn above the x-ray wash, and not dimmed while you look for the piece |
 | Carrying | A piece in hand rides over the machine instead of through it, the glide in from the table does too, and the lift never takes the piece away from the pointer |
+| Fitting | A piece is held only as far above its seat as there is room, checked against every piece of every step with denser sampling than the kit itself uses |
 | Budget | The finished kit stays under 950 draw calls and 400k triangles on a phone |
 | Café | The door is in plain sight rather than behind a tab; the room stays shut until the kit is done, opens on every seat, and puts the front of the building back on the way out |
 | Long game | All 322 pieces build to the final step; progress survives a reload; the finale plays and can always be skipped |
@@ -203,12 +204,39 @@ of them is there because the simpler version failed:
   also carries the piece towards you and off the thing it was lifted over, and
   the first height that clears can be far higher than the height that needs to.
 
-What is *not* here: the piece still always goes in from above. In a real kit
-some parts slide in sideways, and finding which ones needs real collision rather
-than boxes — a box round a part overlaps its neighbours' boxes long before the
-parts touch, which is why a cheap survey of it came back claiming 95 pieces have
-no way in at all. That number is an artefact of the method, not a fact about the
-kit, and the work is not done until it is measured properly.
+### How far a piece is held above its seat
+
+Every piece used to be held the same distance above where it goes — 0.9, or
+1.2 for a pressed one — and lowered straight down, whether or not there was
+that much room. Measured against real geometry, walking the build in order and
+asking each piece whether it could rise by its own lift: **104 of them could
+not.** The four feet under the floor plate are the plainest case — lifting one
+puts it inside the plate it bolts to, then it comes back down through it.
+
+The lift is now whatever room there is, up to the old figure. A part that drops
+into open air still swings in from 0.9 above; one that fits under something
+comes in through the gap it actually has. Where you aim does not change, because
+the hold point only ever moves *closer* to the seat.
+
+Two readings, smaller wins. Rays from the piece's own surface do nearly all the
+work — they are the only thing that sees an interlocked part, like a gear
+threaded on an axle, which has nothing above its silhouette and still cannot
+rise an inch. A box check overhead is a free second opinion worth, measured, the
+difference between 34 and 32.
+
+It is measured once per piece, when the ghost first appears, not on the first
+pointer move of a drag: the priciest piece in the kit takes 40ms, which you
+would feel mid-gesture and will not notice while a step is opening.
+
+**What is still not real:** a piece always goes in from *above*. Measured
+properly — rays from the surface, not boxes — 114 of 277 pieces cannot rise by
+their lift, and **91 of those have a clear way in from the side**: a fascia
+pressed on from the front, a foot offered up from below. Making them come in
+that way means the hold point moves under or behind the machine, where it is
+harder to aim at, so it is a change to see before it ships rather than after.
+(An earlier survey of this using bounding boxes claimed 95 pieces had no way in
+at all. That was an artefact of boxes overlapping long before parts touch, not a
+fact about the kit — it is in the history as a caution.)
 
 ### The outline that shows where a piece goes
 
