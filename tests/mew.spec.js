@@ -676,10 +676,18 @@ test.describe('inside the café', () => {
     await openBoxAndLayOut(page);
     await buildWholeKit(page);
     await enterShowcase(page);
-    await page.evaluate(() => { window.__mew.sheetShow(true); });
-    await advance(page, 1.0);
 
+    /* Open the panel, stop any film and measure in one round trip. The café's
+       film rolls itself after 24 seconds of quiet in the showcase and
+       body.cine hides the whole panel, so a test that spends longer than that
+       between opening the panel and looking at it measures a door of width 0.
+       Under full-suite load it does spend longer. */
     const door = await page.evaluate(() => {
+      const m = window.__mew;
+      if (m.CINE.busy) m.cineStop(true);
+      m.sheetShow(true);
+      for (let i = 0; i < 60; i++) m.tick(1 / 60);
+      m.CINE.lastIn = performance.now();          // and do not let it start again
       const el = document.querySelector('[data-act="room"]');
       if (!el) return { exists: false };
       const cs = getComputedStyle(el), r = el.getBoundingClientRect();
@@ -1238,6 +1246,173 @@ test.describe('squaring up to a piece', () => {
     const adrift = r.filter(x => Math.abs(x.cx) > 0.25 || Math.abs(x.cy) > 0.25);
     expect(adrift, 'pieces sitting off to one side of their own shot: ' +
       adrift.map(x => `${x.id} at ${x.cx.toFixed(2)},${x.cy.toFixed(2)}`).join('; ')).toEqual([]);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Carrying a piece. Marcus: pieces should not drag through the model,
+ * they should go in the way they would in your hands. A part in hand
+ * used to have only the desk under it, so dragging across the kit
+ * buried it -- measured on a five-step build, inside placed geometry at
+ * 26 of 63 points along three sweeps, as much as 13.57 units under the
+ * surface overhead.
+ *
+ * The measurement here casts rays down at the carried piece's own
+ * footprint against the pieces already placed, so it reads real
+ * geometry rather than the boxes the kit steers by.
+ * ------------------------------------------------------------------ */
+test.describe('carrying a piece over the work', () => {
+  /** Install an in-page probe: how far the carried piece is inside placed geometry. */
+  const armProbe = (page) => page.evaluate(() => {
+    const m = window.__mew, T = window.THREE;
+    window.__inside = () => {
+      const id = m.BS.drag && m.BS.drag.id;
+      if (!id) return null;
+      const rt = m.RT[id];
+      if (!rt.g.visible) return null;
+      const placed = [...m.BS.done].map(x => m.RT[x] && m.RT[x].g).filter(g => g && g.visible);
+      if (!placed.length) return null;
+      rt.g.updateMatrixWorld(true);
+      const bx = new T.Box3().setFromObject(rt.g);
+      if (bx.isEmpty()) return null;
+      const rc = new T.Raycaster(); rc.far = 300;
+      const down = new T.Vector3(0, -1, 0);
+      let worst = 0;
+      for (let i = 0; i <= 3; i++) for (let j = 0; j <= 3; j++) {
+        const x = bx.min.x + (bx.max.x - bx.min.x) * i / 3;
+        const z = bx.min.z + (bx.max.z - bx.min.z) * j / 3;
+        rc.set(new T.Vector3(x, bx.max.y + 80, z), down);
+        const hits = rc.intersectObjects(placed, true);
+        if (hits.length && hits[0].point.y > bx.min.y + 1e-3) worst = Math.max(worst, hits[0].point.y - bx.min.y);
+      }
+      return +worst.toFixed(2);
+    };
+  });
+
+  /** Build up to a step and return where its next piece sits on the table. */
+  const reachStep = (page, step) => page.evaluate((want) => {
+    const m = window.__mew;
+    const tick = (n) => { for (let i = 0; i < n; i++) m.tick(1 / 60); };
+    for (let s = 0; s < want; s++) {
+      let id;
+      while ((id = m.strictNext())) m.finishInstant(id);
+      if (m.STEPS[m.BS.step].wire && !m.BS.wired) m.Wire.finish(true);
+      m.Build.nextStep(); tick(2);
+    }
+    tick(60);
+    const id = m.strictNext();
+    const c = id && m.TABLE.clones[id];
+    if (!c) return null;
+    const v = new THREE.Vector3();
+    (c.userData.pick || c).getWorldPosition(v).project(m.camera);
+    const r = m.renderer.domElement.getBoundingClientRect();
+    return { id, name: m.RT[id].def.name, placed: m.BS.done.size,
+             x: r.left + (v.x * 0.5 + 0.5) * r.width, y: r.top + (-v.y * 0.5 + 0.5) * r.height };
+  }, step);
+
+  test('a piece in hand rides over the machine instead of through it', async ({ page }) => {
+    test.setTimeout(180_000);
+    await openKit(page);
+    await openBoxAndLayOut(page);
+    await armProbe(page);
+
+    const at = await reachStep(page, 5);
+    expect(at, 'the next piece is not on the table to pick up').not.toBeNull();
+    expect(at.placed, 'nothing is built yet, so there is nothing to drag through').toBeGreaterThan(20);
+
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    await page.mouse.move(at.x + 20, at.y - 20, { steps: 3 });
+    await advance(page, 0.5);
+
+    const buried = [];
+    let n = 0;
+    for (let i = 0; i <= 20; i++) {
+      const x = 280 + (960 - 280) * i / 20, y = 430 - 150 * Math.sin(Math.PI * i / 20);
+      await page.mouse.move(x, y);
+      await advance(page, 5 / 60);
+      const d = await page.evaluate(() => window.__inside());
+      if (d === null) continue;
+      n++;
+      if (d > 0.05) buried.push({ x: Math.round(x), d });
+    }
+    await page.mouse.up();
+
+    expect(n, 'the piece was never in hand to measure').toBeGreaterThan(14);
+    expect(buried, `${at.id} was inside the model at ` +
+      buried.map(b => `x=${b.x} by ${b.d}`).join(', ')).toEqual([]);
+  });
+
+  test('a piece gliding in from the table goes over the machine, not through it', async ({ page }) => {
+    test.setTimeout(180_000);
+    await openKit(page);
+    await openBoxAndLayOut(page);
+    await armProbe(page);
+
+    /* Step 9 and the front service cover: the straight line from where it lies
+       on the table to a hand held over the kit runs right through the machine,
+       and used to, on 38 of the first 40 frames. */
+    const at = await reachStep(page, 9);
+    expect(at, 'the next piece is not on the table to pick up').not.toBeNull();
+
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    await page.mouse.move(at.x + 15, at.y - 15, { steps: 2 });
+    await page.mouse.move(640, 300);
+
+    let n = 0, inside = 0, deepest = 0;
+    for (let f = 0; f < 40; f++) {
+      await advance(page, 1 / 60);
+      const d = await page.evaluate(() => window.__inside());
+      if (d === null) continue;
+      n++;
+      if (d > 0.05) { inside++; deepest = Math.max(deepest, d); }
+    }
+    await page.mouse.up();
+
+    expect(n, 'the piece was never in flight to measure').toBeGreaterThan(20);
+    expect(inside, `inside the model on ${inside} of ${n} frames of the glide, by up to ${deepest}`)
+      .toBeLessThanOrEqual(1);
+  });
+
+  test('lifting the piece does not take it away from the pointer', async ({ page }) => {
+    test.setTimeout(180_000);
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    /* The piece is lifted along the view ray, not straight up, so it stays
+       under your hand. Lifting it straight up would be simpler and would slide
+       the part away from the pointer the moment it crossed the machine. */
+    const at = await reachStep(page, 5);
+    expect(at, 'the next piece is not on the table to pick up').not.toBeNull();
+
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    await page.mouse.move(at.x + 20, at.y - 20, { steps: 3 });
+    await advance(page, 1.2);
+
+    const drift = [];
+    for (let i = 0; i <= 12; i++) {
+      const x = 320 + (900 - 320) * i / 12, y = 360;
+      await page.mouse.move(x, y);
+      await advance(page, 0.4);
+      const d = await page.evaluate(([px, py]) => {
+        const m = window.__mew, rt = m.RT[m.BS.drag.id];
+        if (!rt.g.visible) return null;
+        const w = new THREE.Vector3();
+        rt.g.getWorldPosition(w).add(rt.anchor).project(m.camera);
+        const r = m.renderer.domElement.getBoundingClientRect();
+        return Math.round(Math.hypot(r.left + (w.x * 0.5 + 0.5) * r.width - px,
+                                     r.top + (-w.y * 0.5 + 0.5) * r.height - py));
+      }, [x, y]);
+      if (d !== null) drift.push({ x: Math.round(x), d });
+    }
+    await page.mouse.up();
+
+    expect(drift.length, 'nothing was measured').toBeGreaterThan(8);
+    const adrift = drift.filter(p => p.d > 70);
+    expect(adrift, 'the piece came away from the pointer at ' +
+      adrift.map(p => `x=${p.x} by ${p.d}px`).join(', ')).toEqual([]);
   });
 });
 
