@@ -11897,18 +11897,20 @@ function suggestedPart() {
 const INS_UP = new T.Vector3(0, 1, 0);
 const INS_EPS = 0.02, INS_MIN = 0.02, INS_POINTS = 128, INS_SLIDE = 0.3;
 const _insRay = new T.Raycaster(), _insO = new T.Vector3();
-const _insPts = [], _insNear = [], _insMeshes = [];
-const _insBox = new T.Box3(), _insB2 = new T.Box3();
+const _insPts = [], _insNear = [], _insMeshes = [], _insBoxes = [], _insHot = [];
+const _insBox = new T.Box3(), _insB2 = new T.Box3(), _insSw = new T.Box3(), _insSweep = new T.Box3(), _insMb = new T.Box3();
+const _insC1 = new T.Vector3(), _insC2 = new T.Vector3();
 function insertLift(rt) { return rt.def.action === 'press' ? (rt.def.lift || 1.2) : 0.9; }
 /* Points on the piece's surface, to a budget, in world space. The budget is
    shared across the piece and capped at both ends: two points each across two
    hundred little meshes is four hundred rays, not the sixty-four the budget
    says, and the timing belt is built exactly that way -- 710ms to measure
    before this was capped. */
-function insertSample(g, budget) {
+function insertSample(g, budget, only) {
   _insMeshes.length = 0;
   g.traverse(o => {
     if (!o.isMesh || o.isInstancedMesh || o.userData.xray || o.userData.rim) return;
+    if (only && only.indexOf(o) < 0) return;
     const p = o.geometry.attributes.position;
     if (p && p.count) _insMeshes.push(o);
   });
@@ -11922,6 +11924,96 @@ function insertSample(g, budget) {
     for (let i = 0; i < p.count; i += stride) _insPts.push(new T.Vector3().fromBufferAttribute(p, i).applyMatrix4(mw));
   }
   return _insPts;
+}
+/* Which of the piece's own meshes could possibly be blocked, travelling `dist`
+   along `dir`? Each mesh's box, unioned with itself shifted along the
+   direction, is the volume it sweeps; if that misses every nearby placed box
+   then nothing in it can be hit, because a box contains the geometry inside it.
+   So this can over-include a mesh and never under-include one.
+
+   This is boxes used to AIM rather than to decide, and the distinction is the
+   whole point. Deciding by box was tried and was badly wrong -- an early survey
+   had 95 pieces with no way in, because boxes overlap long before parts touch.
+   Aiming by box cannot be wrong in that direction: the rays still decide, and
+   they are now spent on the meshes that have something over them instead of
+   strided evenly across a piece whose blocker may be in the two thirds the
+   stride skipped. That is how a bulb strip came to travel 0.868 of its 0.9
+   through a shelf while the measurement said it was clear. */
+/* The placed pieces whose boxes meet the volume the piece will sweep through,
+   as meshes to raycast against and as boxes to aim with. `overhead`, when
+   given, also returns the free height straight above the piece's own box.
+
+   The sweep volume is the argument and not the piece's resting box, and that
+   was a bug worth the trouble of finding. These three gates were written when
+   everything came in from above, where the sweep stays inside the piece's own
+   x and z; a piece sliding in sideways travels through a column of space its
+   resting box does not cover, so the gates were dropping the very piece in the
+   way. The front service cover lost its switch panel plate to the x gate and
+   the rails lost a tower post to the z gate -- each then slid its whole length
+   through the thing the gate had discarded. */
+function insertNear(sweep, room, overhead) {
+  _insNear.length = 0;
+  _insBoxes.length = 0;
+  for (const id of BS.done) {
+    const o = RT[id];
+    if (!o || !o.g || !o.g.visible) continue;
+    partBox(o.g, _insB2);
+    if (_insB2.isEmpty()) continue;
+    if (!sweep.intersectsBox(_insB2)) continue;
+    if (overhead && _insB2.min.y > overhead.max.y &&
+        _insB2.max.x >= overhead.min.x && _insB2.min.x <= overhead.max.x &&
+        _insB2.max.z >= overhead.min.z && _insB2.min.z <= overhead.max.z) {
+      room = Math.min(room, _insB2.min.y - overhead.max.y);
+    }
+    _insBoxes.push(_insB2.clone());
+    o.g.traverse(c => { if (c.isMesh && !c.isInstancedMesh) _insNear.push(c); });
+  }
+  return room;
+}
+function insertSuspect(g, dir, dist) {
+  _insHot.length = 0;
+  insertSuspect.gap = dist;
+  insertSuspect.tangled = false;
+  if (!_insBoxes.length) return _insHot;
+  const ax = dir.x ? 'x' : dir.z ? 'z' : 'y', sign = dir[ax];
+  const o1 = ax === 'x' ? 'y' : 'x', o2 = ax === 'z' ? 'y' : 'z';
+  g.traverse(o => {
+    if (!o.isMesh || o.isInstancedMesh || o.userData.xray || o.userData.rim) return;
+    const p = o.geometry.attributes.position;
+    if (!p || !p.count) return;
+    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+    _insMb.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
+    _insSw.copy(_insMb);
+    _insC1.copy(_insMb.min).addScaledVector(dir, dist);
+    _insC2.copy(_insMb.max).addScaledVector(dir, dist);
+    _insSw.expandByPoint(_insC1); _insSw.expandByPoint(_insC2);
+    let hot = false;
+    for (let i = 0; i < _insBoxes.length; i++) {
+      const b = _insBoxes[i];
+      if (!_insSw.intersectsBox(b)) continue;
+      hot = true;
+      /* This mesh's own clearance, from the boxes already in hand. The gate
+         that used to do this compared the WHOLE piece's box against each
+         placed box, which sees nothing when one small mesh of a wide piece is
+         the part under the overhang -- the bulb strip is twelve across and the
+         bit of it under the copper frame is not. Per mesh it is visible, and it
+         costs no rays. Only ever reduces the room, so when the boxes are
+         pessimistic the piece starts nearer its seat and never inside
+         anything. */
+      if (b.max[o1] < _insMb.min[o1] || b.min[o1] > _insMb.max[o1]) continue;
+      if (b.max[o2] < _insMb.min[o2] || b.min[o2] > _insMb.max[o2]) continue;
+      const g0 = sign > 0 ? b.min[ax] - _insMb.max[ax] : _insMb.min[ax] - b.max[ax];
+      if (g0 >= 0) { if (g0 < insertSuspect.gap) insertSuspect.gap = g0; }
+      /* The boxes interpenetrate, so there is no gap to read and the cheap
+         signal has nothing to say. That is not a rare accident, it is what
+         being threaded through something looks like to a box: the copper frame
+         is a rectangle and its box encloses the bulb strip inside it. Say so,
+         and let the caller pay for rays here instead of everywhere. */
+      else insertSuspect.tangled = true;
+    }
+    if (hot) _insHot.push(o);
+  });
+  return _insHot;
 }
 function insertRoom(rt) {
   const lift = insertLift(rt);
@@ -11950,22 +12042,21 @@ function insertRoom(rt) {
      free and can only under-report the room, which is the safe way to be
      wrong, not because it carries the method. */
   let room = lift;
-  const ceiling = _insBox.max.y + lift + INS_EPS;
-  _insNear.length = 0;
-  for (const id of BS.done) {
-    const o = RT[id];
-    if (!o || !o.g || !o.g.visible) continue;
-    partBox(o.g, _insB2);
-    if (_insB2.isEmpty()) continue;
-    if (_insB2.max.y < _insBox.min.y || _insB2.min.y > ceiling) continue;
-    if (_insB2.max.x < _insBox.min.x || _insB2.min.x > _insBox.max.x) continue;
-    if (_insB2.max.z < _insBox.min.z || _insB2.min.z > _insBox.max.z) continue;
-    if (_insB2.min.y > _insBox.max.y) room = Math.min(room, _insB2.min.y - _insBox.max.y);
-    o.g.traverse(c => { if (c.isMesh && !c.isInstancedMesh) _insNear.push(c); });
-  }
+  _insSweep.copy(_insBox);
+  _insSweep.max.y += lift + INS_EPS;
+  room = insertNear(_insSweep, room, _insBox);
   if (!_insNear.length || room <= INS_MIN) { rt.insRoom = Math.max(INS_MIN, room); return rt.insRoom; }
 
-  insertSample(g, INS_POINTS);
+  /* Nothing sweeps into anything: no ray can find a thing, so do not cast
+     any. This is also where most of the kit now lands. */
+  const hot = insertSuspect(g, INS_UP, room);
+  room = Math.min(room, insertSuspect.gap);
+  if (!hot.length || room <= INS_MIN) { rt.insRoom = Math.max(INS_MIN, room); return rt.insRoom; }
+  /* Four times the budget, but only for a piece the boxes could not read, and
+     only on the meshes that have something over them. About a dozen pieces in
+     the kit reach this, so the cost lands where the cheap answer failed rather
+     than on all 322. */
+  insertSample(g, insertSuspect.tangled ? INS_POINTS * 4 : INS_POINTS, hot);
   if (_insPts.length < 4) { rt.insRoom = Math.max(INS_MIN, room); return rt.insRoom; }
   _insPts.sort((a, b) => b.y - a.y);
   _insRay.near = 0;
@@ -12015,12 +12106,33 @@ function insertAxis(rt) {
      which is what the ones with nowhere to go still do. Measured: dropping
      the floor to nothing adds six more sideways pieces, every one of them
      sliding less than 0.3, and two of the six are blocked anyway. */
-  insertSample(rt.ghost, INS_POINTS * 2);
-  if (!_insPts.length) return rt.insDir;
   const lift = insertLift(rt);
+  /* Re-gathered for the horizontal sweep, because the set insertRoom left
+     behind was gated for travel straight up and is missing whatever lies to
+     the sides. Widened in all four directions at once rather than four times:
+     a slightly larger set costs a few more box tests and nothing else, and
+     the rays still decide. */
+  rt.ghost.updateMatrixWorld(true);
+  partBox(rt.ghost, _insBox);
+  _insSweep.copy(_insBox);
+  _insSweep.min.x -= lift + INS_EPS; _insSweep.max.x += lift + INS_EPS;
+  _insSweep.min.z -= lift + INS_EPS; _insSweep.max.z += lift + INS_EPS;
+  insertNear(_insSweep, lift, null);
+  if (!_insNear.length) return rt.insDir;
   let best = null, bestRoom = INS_SLIDE;
   for (const d of INS_SIDE) {
-    let free = lift;
+    /* Aimed per direction, and the aim is worth more here than it is above.
+       A direction where nothing sweeps into anything is clear for the whole
+       lift without a single ray -- which is the answer we are hoping for, now
+       arrived at for free -- and a direction where something does gets the
+       whole budget spent on the meshes that will meet it. */
+    const hot = insertSuspect(rt.ghost, d, lift);
+    const capped = Math.min(lift, insertSuspect.gap);
+    if (!hot.length) { if (lift > bestRoom) { bestRoom = lift; best = d; } continue; }
+    if (capped <= bestRoom) continue;
+    insertSample(rt.ghost, INS_POINTS * 2, hot);
+    if (!_insPts.length) continue;
+    let free = capped;
     _insRay.near = 0;
     for (const p of _insPts) {
       if (free <= INS_SLIDE) break;
@@ -12359,9 +12471,10 @@ function updateGhosts() {
     if (id === dragging) continue;
     const show = focus === rt || (DECOR.focus === id && !BS.show && !BS.done.has(id) && document.body.classList.contains('decor-open'));
     /* measure the room above it here rather than on the first pointer move of
-       a drag: the two priciest pieces in the kit take 25 and 79ms to measure,
-       which is a hitch you would feel mid-gesture and will not notice while a
-       step is opening */
+       a drag: the priciest piece in the kit takes 106ms to measure, which is a
+       hitch you would feel mid-gesture and will not notice while a step is
+       opening. One piece at a time -- focus is a single piece -- so the cost
+       lands once per selection and never adds up across a step. */
     if (show) { ghostEdges(rt.ghost); insertRoom(rt); setGhostMat(rt, false); }
     rt.ghost.visible = show;
   }
@@ -15312,7 +15425,7 @@ function boot() {
   // handle for automated checks of this test build
   hudInit();
   setTimeout(() => { if (!BS.show && BS.unboxed && !BS.boxing) coachShow(); }, 2200);
-  window.__mew = { GLASS_TINTS, applyGlass, wheelSlop, WHEEL_SLOP, squareView, squareUp, squareTarget, suggestedPart, viewAxis, ghostEdges, updateGhosts, CARRY, carryScan, carryFloor, carryClear, insertRoom, insertLift, insertAxis, insertDepth, preseat, SQUARE_TILT, SQUARE_PHI, SQUARE_POOR, SQ_TIE, SQ_DECISIVE, SQUARE_ROOM, SQ_DIRS, focusPart, pbookShow, strictNext, hudSync, coachShow, sheetShow, VOFF, CINE, IBL, cineReveal, cineTour, cineStop, cineUniforms, postRender, setAmbience, HERO_VIEW, tick: dt => { cineTick(dt); hudTick(dt); updateView(dt); Build.update(dt); envTick(dt); updateSim(dt); UI.update(dt); }, MOTES, STEAM, POST, postLook, toolDriver, get stageW() { return stageW; }, get stageH() { return stageH; }, TABLE, tableDown, stageTap, stepView, DM, MURAL, BOOK, bookRead, UI, TABLE, tableLayout, BOX, boxIntro, boxOpen, boxFinish, toolSwing, TOOLVIS, ENV, envShow, PIECE, Wheel, ctrl, ROOM, ROOM_VIEWS, enterRoom, exitRoom, roomView, GLOWS, LIGHTS3D, FEATURES, CAFE, ASM, benchFocus: () => benchFocus(), STEPS, WL, WX, WY, MECH, OWL, DM, ART_TEX, WHEEL_TOOLS, finishInstant, ctrl, Wheel, CAM, turnBy, get tween() { return viewTween; }, BS, RT, SIM, Build, UI, Wire, view, renderer, camera, scene, layers, goView };
+  window.__mew = { GLASS_TINTS, applyGlass, wheelSlop, WHEEL_SLOP, squareView, squareUp, squareTarget, suggestedPart, viewAxis, ghostEdges, updateGhosts, CARRY, carryScan, carryFloor, carryClear, insertRoom, insertLift, insertAxis, insertDepth, insertSuspect, insertSample, insertNear, preseat, SQUARE_TILT, SQUARE_PHI, SQUARE_POOR, SQ_TIE, SQ_DECISIVE, SQUARE_ROOM, SQ_DIRS, focusPart, pbookShow, strictNext, hudSync, coachShow, sheetShow, VOFF, CINE, IBL, cineReveal, cineTour, cineStop, cineUniforms, postRender, setAmbience, HERO_VIEW, tick: dt => { cineTick(dt); hudTick(dt); updateView(dt); Build.update(dt); envTick(dt); updateSim(dt); UI.update(dt); }, MOTES, STEAM, POST, postLook, toolDriver, get stageW() { return stageW; }, get stageH() { return stageH; }, TABLE, tableDown, stageTap, stepView, DM, MURAL, BOOK, bookRead, UI, TABLE, tableLayout, BOX, boxIntro, boxOpen, boxFinish, toolSwing, TOOLVIS, ENV, envShow, PIECE, Wheel, ctrl, ROOM, ROOM_VIEWS, enterRoom, exitRoom, roomView, GLOWS, LIGHTS3D, FEATURES, CAFE, ASM, benchFocus: () => benchFocus(), STEPS, WL, WX, WY, MECH, OWL, DM, ART_TEX, WHEEL_TOOLS, finishInstant, ctrl, Wheel, CAM, turnBy, get tween() { return viewTween; }, BS, RT, SIM, Build, UI, Wire, view, renderer, camera, scene, layers, goView };
 }
 
 main();

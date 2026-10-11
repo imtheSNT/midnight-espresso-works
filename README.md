@@ -59,8 +59,8 @@ them. For a quick loop, `npx playwright test -g "the tools"` runs one group.
 You don't have to remember any of this before pushing: GitHub Actions runs the
 whole suite on every push and pull request, on software rendering too, so a red
 run there means what a red run means locally. It runs in **three shards on three
-machines**, which brings the wall clock to about seventeen minutes from
-thirty-four. One HTML report is merged back from the
+machines**, which took the wall clock from 34m 53s to 11m 57s on the first run
+that used it. One HTML report is merged back from the
 three and attached to every run, and traces are attached when something fails — open the trace first, it shows what the kit was
 actually doing.
 
@@ -83,6 +83,7 @@ What's covered:
 | Carrying | A piece in hand rides over the machine instead of through it, the glide in from the table does too, and the lift never takes the piece away from the pointer |
 | Fitting | A piece is held only as far above its seat as there is room, checked against every piece of every step with denser sampling than the kit itself uses |
 | Fitting | A piece with no way down comes in from the side, along a path that is clear |
+| Fitting | No piece travels visibly through placed geometry on its way in — asserted on the depth, not just a count, in both directions |
 | Text | Every run of interface text clears the WCAG contrast floor, across the build screen, the menu, its settings page and the coach card |
 | Budget | The finished kit stays under 950 draw calls and 400k triangles on a phone |
 | Café | The door is in plain sight rather than behind a tab; the room stays shut until the kit is done, opens on every seat, and puts the front of the building back on the way out |
@@ -102,16 +103,16 @@ So CI shards. Three machines, `--shard=1/3` and its two siblings, each running
 its third one test at a time exactly as a local run does, and a fourth job
 merging the three blob reports into the one HTML report that gets attached.
 
-Run locally one after another, the three shards came in at **8.8, 10.7 and 14.0
-minutes** — 69 tests, all green, against 34.3 for the same suite unsharded. CI
-waits on the slowest, so the figure that matters is the 14, plus about three to
-install: call it seventeen against a thirty-minute timeout.
+The first sharded run on GitHub came in at **11m 57s**, against 34m 53s for the
+same 69 tests the run before it. Locally, one shard after another, they take
+9.1, 10.4 and 16.1 minutes; CI machines are quicker than the one those were
+measured on, and CI waits on the slowest shard rather than the sum.
 
 The spread is worth knowing about. Sharding splits by position in the file, not
 by how long a test takes, and the expensive ones — the whole kit built piece by
 piece, the glue and the tools — happen to sit together near the end. Playwright
 has no duration-aware split without keeping a timing file around, and balancing
-8.8 against 14.0 is not worth that, but it does mean a fourth shard would buy
+9.1 against 16.1 is not worth that, but it does mean a fourth shard would buy
 less than a third of the remaining time rather than a quarter.
 
 What makes this work is not the matrix, it is one line of config. **With
@@ -309,12 +310,13 @@ the hold point only ever moves *closer* to the seat.
 Two readings, smaller wins. Rays from the piece's own surface do nearly all the
 work — they are the only thing that sees an interlocked part, like a gear
 threaded on an axle, which has nothing above its silhouette and still cannot
-rise an inch. A box check overhead is a free second opinion worth, measured, the
-difference between 34 and 32.
+rise an inch. Boxes do the rest, and what they are for is covered below.
 
 It is measured once per piece, when the ghost first appears, not on the first
-pointer move of a drag: the priciest piece in the kit takes 40ms, which you
-would feel mid-gesture and will not notice while a step is opening.
+pointer move of a drag: the priciest piece in the kit takes 106ms, which you
+would feel mid-gesture and will not notice while a step is opening. One piece
+is measured at a time — the focus is a single piece — so that cost lands once
+per selection and never stacks up as a step opens.
 
 ### And which way it comes in
 
@@ -332,14 +334,74 @@ so nothing about aiming gets harder.
 Two numbers worth keeping. The direction is sampled **twice as densely** as the
 lift measurement, because at the lift measurement's own density the direction
 picked was blocked for **13 of 34** — it made the kit worse by its own survey.
-Twice brings that to 4; four times brings it to 3 and doubles the worst piece
-from 73ms to 103, which is not worth it. And a slide has to be worth taking:
-without a 0.3 floor, six more pieces slide in by less than that, two of them
-through something.
+And a slide has to be worth taking: without a 0.3 floor, six more pieces slide
+in by less than that, two of them through something.
 
 (An earlier survey of all this using bounding boxes claimed 95 pieces had no way
 in at all. That was an artefact of boxes overlapping long before parts touch,
-not a fact about the kit — it is in the history as a caution.)
+not a fact about the kit — it is in the history as a caution. What boxes are
+good for is below.)
+
+### Counting is not measuring
+
+The two checks above both passed while five pieces travelled almost their whole
+path through solid geometry. They counted how many pieces touched something and
+never asked **how far in**, and the distribution turned out to be nothing like
+the count suggested: a median overlap of 0.001, and a bulb strip going **0.868
+of its 0.9** through a copper frame. "36 pieces graze something" and "a bulb
+strip passes through a frame" were the same number.
+
+Both tests now assert the depth first and the count second, so the failure
+names the piece and how far it went rather than reporting a count five over its
+bound. Measured end to end, against the same survey:
+
+| | before | after |
+| --- | --- | --- |
+| deepest overlap, lifting | 0.868 | **0.049** |
+| deepest overlap, sliding in | 1.066 | **0** |
+| pieces deeper than 0.05 | 8 | **0** |
+| pieces that touch anything | 36 | **20** |
+| pieces that arrive with no motion | 20 | **31** |
+| pieces that slide in sideways | 30 | **23** |
+| priciest piece to measure | 61ms | **106ms** |
+
+The last three rows are the price, and it is a real one: eleven more pieces now
+appear at their seat without moving, because the measurement stopped pretending
+there was room. Dull beats wrong — a piece sliding through a frame is the thing
+Marcus asked to have fixed — but it is the kind of cost worth naming rather than
+burying.
+
+Two causes, and they needed different answers.
+
+**The neighbour gates were written for travel straight up.** Three box gates
+pick which placed pieces are worth raycasting against, and they tested the
+piece's **resting** box. Going up that is fine, because the sweep stays inside
+the piece's own footprint. Sliding in sideways it is wrong: the piece travels
+through a column of space its resting box never covers, so the gate discarded
+the very thing in the way. The rails lost a tower post to the z gate and the
+front service cover lost a switch panel plate to the x gate, and each then slid
+its whole length through what the gate had thrown away. The gates now test the
+swept volume. That alone took the sideways offenders from 4 to 2 and the worst
+from 1.066 to 0.
+
+**The other five were threaded through something.** Here boxes have nothing to
+say, and that is a fact about the geometry rather than a shortcoming: the copper
+frame is a rectangle, so its box *encloses* the bulb strip sitting inside it and
+there is no gap to read. So the code says so — `insertSuspect` reports
+`tangled` when it finds boxes interpenetrating — and those pieces, and only
+those, get four times the ray budget. About a dozen pieces in the kit reach it.
+Two times was tried first and was not enough: it left three pieces over 0.05
+and the bulb strip at its full 0.868. Four times fixes all of them and costs
+106ms on the worst piece, once, when that piece is selected.
+
+Boxes do two jobs here and the difference between them is the whole lesson.
+**Aiming** with boxes is safe: a box contains the geometry inside it, so a swept
+box that misses everything proves no ray could hit, and the rays still decide.
+**Deciding** with boxes is what produced the 95-pieces-have-no-way-in nonsense
+above. Used per mesh for aiming and for clearance, boxes turned out to be both
+faster and slightly more accurate than not using them — dropping the clearance
+clamp and leaning on rays alone gave 144ms and one piece back over 0.05, because
+the clamp is also what lets the ray loop stop early.
 
 What is still not real: a piece arrives already turned the right way round. You
 never rotate it in your hands. Marcus's call, and the right one — it would be a
