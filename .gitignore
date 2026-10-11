@@ -26,4 +26,6 @@ yarn-error.log
 test-results/
 playwright-report/
 blob-report/
+# only ever exists in CI, where the three shards are merged
+all-blob-reports/
 .playwright/

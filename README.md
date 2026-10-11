@@ -49,7 +49,7 @@ npm test
 ```
 
 Tests run headless against software rendering so results are the same on every
-machine. That costs time: 63 tests took 30 minutes that way on the machine this
+machine. That costs time: 69 tests took 35 minutes that way on the machine this
 was last measured on, so take that as an order of magnitude rather than a
 promise and time it on yours.
 `npm run test:gpu` uses the real graphics card instead and is far quicker,
@@ -58,9 +58,11 @@ them. For a quick loop, `npx playwright test -g "the tools"` runs one group.
 
 You don't have to remember any of this before pushing: GitHub Actions runs the
 whole suite on every push and pull request, on software rendering too, so a red
-run there means what a red run means locally. The HTML report is attached to
-every run, and traces are attached when something fails — open the trace first,
-it shows what the kit was actually doing.
+run there means what a red run means locally. It runs in **three shards on three
+machines**, which brings the wall clock to about seventeen minutes from
+thirty-four. One HTML report is merged back from the
+three and attached to every run, and traces are attached when something fails — open the trace first, it shows what the kit was
+actually doing.
 
 What's covered:
 
@@ -88,6 +90,55 @@ What's covered:
 | Tools | A piece dropped on its outline seats and raises its screws; steady swirling drives one home; swirling far too fast strips it back to the start |
 | Glue | A stroke along a seam glues the piece end to end; a stroke anywhere else glues nothing; the brush takes a press even when a loose piece lies on the seam |
 | Press | Holding the ring clicks the piece down; letting go early lets it spring back unseated |
+
+### Splitting the suite across machines
+
+The suite went from 47 tests to 69 in one sitting, and CI runs were landing at
+**33 to 34 minutes** against a 45-minute timeout. A timeout is the worst way for
+a run to go red: it reads as a defect and it is a clock, so you go looking for a
+bug that was never there.
+
+So CI shards. Three machines, `--shard=1/3` and its two siblings, each running
+its third one test at a time exactly as a local run does, and a fourth job
+merging the three blob reports into the one HTML report that gets attached.
+
+Run locally one after another, the three shards came in at **8.8, 10.7 and 14.0
+minutes** — 69 tests, all green, against 34.3 for the same suite unsharded. CI
+waits on the slowest, so the figure that matters is the 14, plus about three to
+install: call it seventeen against a thirty-minute timeout.
+
+The spread is worth knowing about. Sharding splits by position in the file, not
+by how long a test takes, and the expensive ones — the whole kit built piece by
+piece, the glue and the tools — happen to sit together near the end. Playwright
+has no duration-aware split without keeping a timing file around, and balancing
+8.8 against 14.0 is not worth that, but it does mean a fourth shard would buy
+less than a third of the remaining time rather than a quarter.
+
+What makes this work is not the matrix, it is one line of config. **With
+`fullyParallel: false`, the unit of sharding is the file** — and the suite is
+one file, so all 69 tests went to the first machine and the other two ran
+nothing at all:
+
+```
+shard 1/3: 69     shard 2/3: 0     shard 3/3: 0
+```
+
+`fullyParallel: true` makes the test the unit instead, and the split comes out
+23/23/23. Worth knowing for the day someone flips it back: **an empty shard
+exits 0 and prints nothing**, so the two idle machines go green and the only
+thing that complains is the first one, by running the whole suite and hitting
+its timeout. Coverage cannot quietly shrink either way — shards partition, so
+whatever the split, every test is on one of them. It changes nothing about how the tests run, because `workers: 1` is
+still there and still serialises them: the listed order is **identical** under
+both settings, and the three shards are an exact cover — 69 tests, no
+duplicates, nothing missing. Both of those were checked rather than assumed,
+because a sharding change that quietly dropped a third of the suite would still
+be green, and green is what you would believe.
+
+`workers: 1` stays for the reason it was always there. Software rendering
+saturates the cores, and two Chromiums doing it at once turn every timing
+measurement in this file into a guess. Three machines each running one test at a
+time is not the same thing as one machine running three.
 
 ### Performance
 
