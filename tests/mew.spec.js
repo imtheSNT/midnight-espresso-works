@@ -1466,13 +1466,19 @@ test.describe('holding a piece before it goes in', () => {
             for (let i = 0; i < p.count; i += stride) pts.push(new T.Vector3().fromBufferAttribute(p, i).applyMatrix4(c.matrixWorld));
           });
           rc.near = 0; rc.far = lift - EPS;
-          let hit = 0;
+          /* Every point, not the first hit, because the number that matters is
+             HOW FAR the piece travels through something. This used to break on
+             the first hit and so knew a count and not a depth -- and the count
+             hid the shape of it: a median graze of 0.001 with a bulb strip
+             travelling 0.868 of its 0.9 inside a copper frame. */
+          let hit = 0, free = lift;
           for (const p of pts) {
             o.copy(p); o.y += EPS;
             rc.set(o, new T.Vector3(0, 1, 0));
-            if (rc.intersectObjects(placed, false).length) { hit++; break; }
+            const h = rc.intersectObjects(placed, false);
+            if (h.length) { hit++; free = Math.min(free, h[0].distance + EPS); }
           }
-          if (hit) out.push({ id, name: rt.def.name, step: st, lift: +lift.toFixed(2) });
+          if (hit) out.push({ id, name: rt.def.name, step: st, lift: +lift.toFixed(2), over: +(lift - free).toFixed(3) });
         }
         m.finishInstant(id); tick(1);
         rt.g.traverse(c => { if (c.isMesh && !c.isInstancedMesh) placed.push(c); });
@@ -1514,12 +1520,14 @@ test.describe('holding a piece before it goes in', () => {
               for (let i = 0; i < p.count; i += stride) pts.push(new T.Vector3().fromBufferAttribute(p, i).applyMatrix4(c.matrixWorld));
             });
             rc.near = 0; rc.far = len - 0.03;
+            let free = len;
             for (const p of pts) {
               o.copy(p).addScaledVector(dir, 0.03);
               rc.set(o, dir);
-              if (rc.intersectObjects(placed, false).length) { blocked = true; break; }
+              const h = rc.intersectObjects(placed, false);
+              if (h.length) { blocked = true; free = Math.min(free, h[0].distance + 0.03); }
             }
-            out.push({ id, name: rt.def.name, len: +len.toFixed(2), blocked });
+            out.push({ id, name: rt.def.name, len: +len.toFixed(2), blocked, over: +(len - free).toFixed(3) });
           }
           m.finishInstant(id); tick(1);
           rt.g.traverse(c => { if (c.isMesh && !c.isInstancedMesh) placed.push(c); });
@@ -1530,16 +1538,24 @@ test.describe('holding a piece before it goes in', () => {
       return out;
     });
 
-    /* 30 of them, measured, 20 pressed and 10 placed. The bound is well under
-       that so it fails loudly if the sideways branch stops firing, not if one
-       piece changes its mind. */
+    /* 23 of them, measured. The bound is well under that so it fails loudly if
+       the sideways branch stops firing, not if one piece changes its mind. */
     expect(r.length, 'no piece comes in from the side any more').toBeGreaterThanOrEqual(18);
     const blocked = r.filter(x => x.blocked);
-    /* 4 of the 30 still scrape something on the way in; the bound is there to
-       catch a sideways pick that is wrong wholesale, which is what the first
-       version of this was -- 13 of 34 */
+    /* One touches something, by 0. The bound catches a sideways pick that is
+       wrong wholesale, which is what the first version of this was -- 13 of
+       34. */
     expect(blocked.length, 'sideways paths that are blocked anyway: ' +
-      blocked.map(x => `${x.id} ${x.name} by ${x.len}`).join('; ')).toBeLessThanOrEqual(8);
+      blocked.map(x => `${x.id} ${x.name} by ${x.len}`).join('; ')).toBeLessThanOrEqual(5);
+
+    /* And the depth, which is the part that matters and was missing. The rails
+       used to slide 1.066 of their 1.1 through a tower post and the front
+       cover 0.356 of its 0.9 through a switch panel plate, both because the
+       gates that pick the neighbours to test were written for travel straight
+       up and dropped whatever lay to the side. */
+    const deep = blocked.filter(x => x.over > 0.08);
+    expect(deep.length, 'sideways paths that go visibly through something: ' +
+      deep.map(x => `${x.id} ${x.name} by ${x.over} of ${x.len}`).join('; ')).toBe(0);
   });
 
   test('is never lifted into whatever is above it', async ({ page }) => {
@@ -1549,15 +1565,22 @@ test.describe('holding a piece before it goes in', () => {
 
     const through = await survey(page);
 
-    /* The kit spends a budget of 128 sample points on a piece; this samples up
-       to 96 per mesh, so it is the stricter of the two by design and a fix
-       that only satisfied the kit's own sampling would not pass here. It
-       catches 36, against 104 before any of this, and a wholesale return to a
-       fixed lift puts it straight back to three figures. The 36 are small
-       overhangs on fiddly pieces -- the bound is set to fail on a regression,
-       not to claim the last of them. */
+    /* The depth is the assertion that means something, and the one this test
+       did not have while it was passing. The 19 are grazes: the deepest is
+       0.049 and the median is 0. A count alone passed happily while a bulb
+       strip rose 0.868 of its 0.9 through a copper frame, which is the whole
+       complaint about pieces dragging through the model. */
+    const deep = through.filter(t => t.over > 0.08);
+    expect(deep.length, 'pieces travelling visibly through something: ' +
+      deep.map(t => `${t.id} ${t.name} by ${t.over} of ${t.lift}`).join('; ')).toBe(0);
+
+    /* This samples up to 96 points per mesh where the kit spends a budget of
+       128 across the piece, so it is the stricter of the two by design and a
+       fix that only satisfied the kit's own sampling would not pass here. 19
+       pieces touch something, against 104 before any of this, and a wholesale
+       return to a fixed lift puts it straight back to three figures. */
     expect(through.length, 'pieces still lifted into something: ' +
-      through.slice(0, 10).map(t => `${t.id} ${t.name} by ${t.lift}`).join('; ')).toBeLessThanOrEqual(40);
+      through.slice(0, 10).map(t => `${t.id} ${t.name} by ${t.lift}`).join('; ')).toBeLessThanOrEqual(26);
   });
 });
 
