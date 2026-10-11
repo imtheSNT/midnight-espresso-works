@@ -80,6 +80,7 @@ What's covered:
 | Outline | The ghost on show has an outline, dark enough to clear 3.0 contrast on both the mat and the counter, drawn above the x-ray wash, and not dimmed while you look for the piece |
 | Carrying | A piece in hand rides over the machine instead of through it, the glide in from the table does too, and the lift never takes the piece away from the pointer |
 | Fitting | A piece is held only as far above its seat as there is room, checked against every piece of every step with denser sampling than the kit itself uses |
+| Fitting | A piece with no way down comes in from the side, along a path that is clear |
 | Budget | The finished kit stays under 950 draw calls and 400k triangles on a phone |
 | Café | The door is in plain sight rather than behind a tab; the room stays shut until the kit is done, opens on every seat, and puts the front of the building back on the way out |
 | Long game | All 322 pieces build to the final step; progress survives a reload; the finale plays and can always be skipped |
@@ -228,15 +229,34 @@ It is measured once per piece, when the ghost first appears, not on the first
 pointer move of a drag: the priciest piece in the kit takes 40ms, which you
 would feel mid-gesture and will not notice while a step is opening.
 
-**What is still not real:** a piece always goes in from *above*. Measured
-properly — rays from the surface, not boxes — 114 of 277 pieces cannot rise by
-their lift, and **91 of those have a clear way in from the side**: a fascia
-pressed on from the front, a foot offered up from below. Making them come in
-that way means the hold point moves under or behind the machine, where it is
-harder to aim at, so it is a change to see before it ships rather than after.
-(An earlier survey of this using bounding boxes claimed 95 pieces had no way in
-at all. That was an artefact of boxes overlapping long before parts touch, not a
-fact about the kit — it is in the history as a caution.)
+### And which way it comes in
+
+33 pieces have no room above them at all. With the lift cut to the room
+available they would appear at the seat with no motion, which is honest and
+dull. **30 of them now slide in from the side** — the four feet under the floor
+plate come in from the left, the service cover off the front, a chair in from
+the side of the room.
+
+Sideways only, never from below. A piece held under its seat would be inside
+the machine or the desk and hard to aim at; sideways it is held at most one
+lift from where it goes, which is no further off than the lift it used to get,
+so nothing about aiming gets harder.
+
+Two numbers worth keeping. The direction is sampled **twice as densely** as the
+lift measurement, because at the lift measurement's own density the direction
+picked was blocked for **13 of 34** — it made the kit worse by its own survey.
+Twice brings that to 4; four times brings it to 3 and doubles the worst piece
+from 73ms to 103, which is not worth it. And a slide has to be worth taking:
+without a 0.3 floor, six more pieces slide in by less than that, two of them
+through something.
+
+(An earlier survey of all this using bounding boxes claimed 95 pieces had no way
+in at all. That was an artefact of boxes overlapping long before parts touch,
+not a fact about the kit — it is in the history as a caution.)
+
+What is still not real: a piece arrives already turned the right way round. You
+never rotate it in your hands. Marcus's call, and the right one — it would be a
+puzzle nobody asked for.
 
 ### The outline that shows where a piece goes
 
