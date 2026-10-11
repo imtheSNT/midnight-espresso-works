@@ -10,9 +10,20 @@ on:
 
 jobs:
   playwright:
-    name: Playwright
+    name: Playwright ${{ matrix.shard }}/3
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # A shard is a third of the suite, so about twelve minutes plus three to
+    # install. Thirty is headroom, not a target; if a shard ever gets near it,
+    # the answer is another shard, not a bigger number.
+    timeout-minutes: 30
+
+    strategy:
+      # One shard going red must not cancel the others. The point of running
+      # the whole suite is to see everything that is broken, not the first
+      # thing.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
 
     steps:
       - uses: actions/checkout@v4
@@ -29,26 +40,74 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       # Software rendering, same as the README describes, so a failure here
-      # means the same thing it means on your machine.
+      # means the same thing it means on your machine. Each shard still runs
+      # its own third one test at a time (workers: 1), so a shard behaves
+      # exactly like a short local run.
       - name: Run tests
-        run: npx playwright test
+        run: npx playwright test --shard=${{ matrix.shard }}/3
         env:
           CI: "true"
 
-      - name: Upload report
+      # A blob report is the shard's results in a form that can be merged with
+      # the others. On its own it is not readable; the report job below turns
+      # the three of them into one HTML report.
+      - name: Upload blob report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
-          path: playwright-report/
-          retention-days: 14
+          name: blob-report-${{ matrix.shard }}
+          path: blob-report/
+          retention-days: 1
 
       # Traces are only written for failures; they are the quickest way to see
-      # what the kit was actually doing when a test went red.
+      # what the kit was actually doing when a test went red. Named per shard
+      # because upload-artifact@v4 refuses two artifacts with the same name.
       - name: Upload failure traces
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-traces
+          name: playwright-traces-${{ matrix.shard }}
           path: test-results/
+          retention-days: 14
+
+  report:
+    name: Report
+    needs: [playwright]
+    # Runs even when a shard failed — a red run is when you most want the
+    # report.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # merge-reports ships with Playwright, so the package is all this needs —
+      # no browser.
+      - name: Install dependencies
+        run: npm install
+
+      # If every shard was killed by its own timeout, none of them uploaded a
+      # blob report and this step fails with nothing found. That is a red job
+      # on top of three red shards, which is noisy but not misleading — read
+      # the shards, not this.
+      - name: Download blob reports
+        uses: actions/download-artifact@v4
+        with:
+          path: all-blob-reports
+          pattern: blob-report-*
+          merge-multiple: true
+
+      - name: Merge into one report
+        run: npx playwright merge-reports --reporter html ./all-blob-reports
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
           retention-days: 14
