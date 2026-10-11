@@ -12282,13 +12282,91 @@ const _hplane = new T.Plane(new T.Vector3(0, 1, 0), 0), _cbox = new T.Box3();
 /* how far a piece's underside sits below the point you hold it by */
 function carryLift(rt) {
   rt.g.updateMatrixWorld(true); _cbox.setFromObject(rt.g);
-  if (_cbox.isEmpty()) return 1;
+  if (_cbox.isEmpty()) { rt.carryHX = rt.carryHZ = 0; return 1; }
+  rt.carryHX = (_cbox.max.x - _cbox.min.x) / 2;
+  rt.carryHZ = (_cbox.max.z - _cbox.min.z) / 2;
   const aY = rt.anchor.y + layerPos(rt).y + rt.g.position.y;
   return Math.max(0, aY - _cbox.min.y) + 0.8;
+}
+/* ===== Carrying a piece over the work =====
+   A part in your hand used to pass straight through the machine. The only
+   floor under it was the desk, so dragging across the kit buried it: measured
+   on a five-step build, sweeping one piece across the model, it was inside
+   placed geometry at 8 of 17 points along the sweep, at one of them 6.5 units
+   below the surface overhead. Nothing about that reads as holding a part.
+
+   It now rides over whatever is beneath it, the way a hand does. The height
+   comes from the placed pieces' boxes rather than their triangles: a box round
+   a piece is taller than the piece, so the part rides a shade high over fiddly
+   detail. That is the forgiving direction -- high is a hand being careful, low
+   is a part inside a wall -- and it is steadier than tracking every lip and
+   screw head. The boxes are gathered once, when you pick something up, because
+   nothing already placed moves while you carry. */
+const CARRY = { boxes: [], pool: [], deskY: -0.07 };
+function carryScan(skipId) {
+  CARRY.boxes.length = 0;
+  for (const id of BS.done) {
+    if (id === skipId) continue;
+    const rt = RT[id];
+    if (!rt || !rt.g || !rt.g.visible) continue;
+    const n = CARRY.boxes.length;
+    const b = CARRY.pool[n] || (CARRY.pool[n] = new T.Box3());
+    partBox(rt.g, b);
+    if (!b.isEmpty()) CARRY.boxes.push(b);
+  }
+  return CARRY.boxes.length;
+}
+/* the top of the work under a piece of this footprint, or the desk if nothing is */
+function carryFloor(x, z, hx, hz) {
+  let y = CARRY.deskY;
+  for (const b of CARRY.boxes) {
+    if (b.max.y <= y) continue;
+    if (x + hx < b.min.x || x - hx > b.max.x || z + hz < b.min.z || z - hz > b.max.z) continue;
+    y = b.max.y;
+  }
+  return y;
+}
+const _chit = new T.Vector3();
+/* Lift the point under the pointer until the piece clears whatever is beneath
+   it, keeping it under the pointer by sliding along the view ray.
+
+   Raising it is not enough on its own, and the first attempt showed why: the
+   view ray leans, so lifting also carries the piece towards you and off the
+   thing it was lifted over, and the first height that clears can be a good
+   deal higher than the height that needs to. So it raises until it clears,
+   then walks back down to the lowest height that still does -- ten halvings,
+   which lands well inside a tenth of a unit.
+
+   How much that is worth depends on the path. Carried straight across the kit
+   at a fixed screen height, a rug 0.04 thick floated 11.8 units up without the
+   walk-down and 7.2 with it; carried along an arc over the same kit the two
+   came out 11.8 and 11.7. Lowest-that-clears is the right rule either way, but
+   it is not always a visible saving. */
+function carryClear(rt, out) {
+  const lift = rt.carryLift || 1, hx = rt.carryHX || 0, hz = rt.carryHZ || 0;
+  const at = y => { _hplane.constant = -y; return _ray.ray.intersectPlane(_hplane, _chit) ? _chit : null; };
+  const needAt = p => carryFloor(p.x, p.z, hx, hz) + lift;
+  if (out.y >= needAt(out) - 1e-4) return true;
+  let y = out.y;
+  for (let i = 0; i < 6; i++) {
+    const p = at(y); if (!p) return false;
+    const need = needAt(p);
+    if (y >= need - 1e-4) break;
+    y = need;
+  }
+  let lo = out.y, hi = y;
+  for (let i = 0; i < 10; i++) {
+    const mid = (lo + hi) / 2, p = at(mid);
+    if (p && mid >= needAt(p) - 1e-4) hi = mid; else lo = mid;
+  }
+  const p = at(hi); if (!p) return false;
+  out.copy(p);
+  return true;
 }
 function startCarry(d) {
   const rt = RT[d.id];
   rt.carryLift = carryLift(rt);
+  carryScan(d.id);
   rt.state = 'drag'; rt.dragHot = false; rt.dragWant = null; rt.tw = null;
   d.el.classList.add('held');
   if (FEATURES.autoTool && BS.tool !== 'hand') setTool('hand', false);
@@ -12323,9 +12401,8 @@ function carryMove(d) {
   _ndc.set(sx / stageW * 2 - 1, -(sy / stageH) * 2 + 1);
   _ray.setFromCamera(_ndc, camera);
   if (!_ray.ray.intersectPlane(_plane, _hit)) return;
-  /* never under the table: where the target plane dips below the desk, slide along a level plane just above it */
-  const minY = -0.07 + (rt.carryLift || 1);
-  if (_hit.y < minY) { _hplane.constant = -minY; if (!_ray.ray.intersectPlane(_hplane, _hit)) return; }
+  /* never under the desk, and never through the work */
+  if (!carryClear(rt, _hit)) return;
   toScreen(tgt, _scr);
   const hot = !_scr.behind && Math.hypot(_scr.x - sx, _scr.y - sy) < snapRadius(rt, tgt);
   rt.dragWant = (rt.dragWant || new T.Vector3()).copy(_hit).sub(rt.anchor).sub(layerPos(rt));
@@ -12969,6 +13046,13 @@ const Build = {
       if (rt.state === 'drag') {
         const want = rt.dragHot ? preseat(rt, _w2).add(rt.home) : rt.dragWant;
         if (want) rt.off.lerp(want, rt.dragHot ? 1 - Math.pow(0.0004, dt) : rt.glide > 0 ? 1 - Math.pow(0.003, dt) : 1);
+        /* The glide in from the table is a straight line, and that line used
+           to run through the machine -- 38 of the first 40 frames of it, with
+           the front service cover at step 9. It does not any more, because
+           both ends of the line are now outside the work: clamping the point
+           under the pointer was enough on its own, and a second clamp on the
+           piece in flight turned out to change nothing I could measure, so
+           there is not one. */
         if (rt.glide > 0) rt.glide -= dt;
       } else if (rt.tw) {
         const tw = rt.tw;
@@ -15042,7 +15126,7 @@ function boot() {
   // handle for automated checks of this test build
   hudInit();
   setTimeout(() => { if (!BS.show && BS.unboxed && !BS.boxing) coachShow(); }, 2200);
-  window.__mew = { GLASS_TINTS, applyGlass, wheelSlop, WHEEL_SLOP, squareView, squareUp, squareTarget, suggestedPart, viewAxis, ghostEdges, updateGhosts, SQUARE_TILT, SQUARE_PHI, SQUARE_POOR, SQ_TIE, SQ_DECISIVE, SQUARE_ROOM, SQ_DIRS, focusPart, pbookShow, strictNext, hudSync, coachShow, sheetShow, VOFF, CINE, IBL, cineReveal, cineTour, cineStop, cineUniforms, postRender, setAmbience, HERO_VIEW, tick: dt => { cineTick(dt); hudTick(dt); updateView(dt); Build.update(dt); envTick(dt); updateSim(dt); UI.update(dt); }, MOTES, STEAM, POST, postLook, toolDriver, get stageW() { return stageW; }, get stageH() { return stageH; }, TABLE, tableDown, stageTap, stepView, DM, MURAL, BOOK, bookRead, UI, TABLE, tableLayout, BOX, boxIntro, boxOpen, boxFinish, toolSwing, TOOLVIS, ENV, envShow, PIECE, Wheel, ctrl, ROOM, ROOM_VIEWS, enterRoom, exitRoom, roomView, GLOWS, LIGHTS3D, FEATURES, CAFE, ASM, benchFocus: () => benchFocus(), STEPS, WL, WX, WY, MECH, OWL, DM, ART_TEX, WHEEL_TOOLS, finishInstant, ctrl, Wheel, CAM, turnBy, get tween() { return viewTween; }, BS, RT, SIM, Build, UI, Wire, view, renderer, camera, scene, layers, goView };
+  window.__mew = { GLASS_TINTS, applyGlass, wheelSlop, WHEEL_SLOP, squareView, squareUp, squareTarget, suggestedPart, viewAxis, ghostEdges, updateGhosts, CARRY, carryScan, carryFloor, carryClear, SQUARE_TILT, SQUARE_PHI, SQUARE_POOR, SQ_TIE, SQ_DECISIVE, SQUARE_ROOM, SQ_DIRS, focusPart, pbookShow, strictNext, hudSync, coachShow, sheetShow, VOFF, CINE, IBL, cineReveal, cineTour, cineStop, cineUniforms, postRender, setAmbience, HERO_VIEW, tick: dt => { cineTick(dt); hudTick(dt); updateView(dt); Build.update(dt); envTick(dt); updateSim(dt); UI.update(dt); }, MOTES, STEAM, POST, postLook, toolDriver, get stageW() { return stageW; }, get stageH() { return stageH; }, TABLE, tableDown, stageTap, stepView, DM, MURAL, BOOK, bookRead, UI, TABLE, tableLayout, BOX, boxIntro, boxOpen, boxFinish, toolSwing, TOOLVIS, ENV, envShow, PIECE, Wheel, ctrl, ROOM, ROOM_VIEWS, enterRoom, exitRoom, roomView, GLOWS, LIGHTS3D, FEATURES, CAFE, ASM, benchFocus: () => benchFocus(), STEPS, WL, WX, WY, MECH, OWL, DM, ART_TEX, WHEEL_TOOLS, finishInstant, ctrl, Wheel, CAM, turnBy, get tween() { return viewTween; }, BS, RT, SIM, Build, UI, Wire, view, renderer, camera, scene, layers, goView };
 }
 
 main();

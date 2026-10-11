@@ -78,6 +78,7 @@ What's covered:
 | Camera | A piece with no face is framed without spinning the view; one already in plain sight is left alone |
 | Camera | The square-up button takes one tap, goes when the kit is finished, and the four camera buttons still fit a phone held sideways |
 | Outline | The ghost on show has an outline, dark enough to clear 3.0 contrast on both the mat and the counter, drawn above the x-ray wash, and not dimmed while you look for the piece |
+| Carrying | A piece in hand rides over the machine instead of through it, the glide in from the table does too, and the lift never takes the piece away from the pointer |
 | Budget | The finished kit stays under 950 draw calls and 400k triangles on a phone |
 | Café | The door is in plain sight rather than behind a tab; the room stays shut until the kit is done, opens on every seat, and puts the front of the building back on the way out |
 | Long game | All 322 pieces build to the final step; progress survives a reload; the finale plays and can always be skipped |
@@ -151,6 +152,15 @@ events from inside the page, where press and release land in the same task.
 A test that depends on winning that race is not protecting anything — it is a
 coin toss that will eventually be "fixed" by deleting the assertion.
 
+The kit's own clocks are the other half of this. The café rolls its film after
+**24 seconds** of quiet in the showcase, and `body.cine` hides the whole panel
+and camera cluster while it plays; the coach card takes itself away after
+**4.8 seconds**. A test that reaches the showcase and then spends longer than
+that on round trips measures a door of width 0 and blames the door. Three
+separate tests have been caught by that one. The remedy is the same: open it,
+stop the film, pin `CINE.lastIn` and measure, all inside a single
+`page.evaluate`.
+
 ### Timing in tests: hold by fill, not by the clock
 
 The press ring fills over about 0.45s of *simulated* time, and the frame loop
@@ -167,6 +177,38 @@ can only overshoot by one frame's worth.
 The same thinking applies to the screwdriver from the other direction: there, a
 short `setTimeout` lands near 25ms under load, which is a perfectly safe swirling
 pace, so testing the strip rule means dispatching with no pause at all.
+
+### Carrying a piece over the work
+
+A part in your hand used to have only the desk under it, so dragging it across
+the kit buried it. Measured by casting rays down at the carried piece's own
+footprint against the pieces already placed: sweeping three different pieces
+across a built machine, the piece was **inside placed geometry at 26 of 63
+points**, at the worst of them **13.57 units** below the surface overhead. The
+glide in from the table was worse in its own way — the front service cover at
+step 9 spent **38 of the first 40 frames** inside the machine.
+
+It now rides over whatever is beneath it. Three things make that work, and each
+of them is there because the simpler version failed:
+
+- **Boxes, not triangles.** The height comes from the placed pieces' bounding
+  boxes. A box round a piece is taller than the piece, so the part rides a shade
+  high over fiddly detail — the forgiving direction, and steadier than tracking
+  every lip and screw head. They are gathered once, when you pick something up,
+  because nothing already placed moves while you carry.
+- **Lift along the view ray, not straight up.** Straight up is simpler and takes
+  the piece away from your hand the moment it crosses the machine. There is a
+  test for that specifically.
+- **Raise until it clears, then walk back down.** The view ray leans, so lifting
+  also carries the piece towards you and off the thing it was lifted over, and
+  the first height that clears can be far higher than the height that needs to.
+
+What is *not* here: the piece still always goes in from above. In a real kit
+some parts slide in sideways, and finding which ones needs real collision rather
+than boxes — a box round a part overlaps its neighbours' boxes long before the
+parts touch, which is why a cheap survey of it came back claiming 95 pieces have
+no way in at all. That number is an artefact of the method, not a fact about the
+kit, and the work is not done until it is measured properly.
 
 ### The outline that shows where a piece goes
 
