@@ -77,6 +77,7 @@ What's covered:
 | Camera | A drag turns the model; the view can't flip under or over it; zoom stays in range |
 | Tools | Press-and-hold opens the tool wheel centred on the touch |
 | Camera | Squaring up faces the piece, frames it whole and centred, and never goes under the desk or too close to see anything |
+| Camera | Every piece is on screen and big enough to aim at from the view the kit settles on, and the part you pick it up from is still in shot — measured in pixels, not degrees |
 | Camera | A piece with no face is framed without spinning the view; one already in plain sight is left alone |
 | Camera | The square-up button takes one tap, goes when the kit is finished, and the four camera buttons still fit a phone held sideways |
 | Outline | The ghost on show has an outline, dark enough to clear 3.0 contrast on both the mat and the counter, drawn above the x-ray wash, and not dimmed while you look for the piece |
@@ -496,25 +497,98 @@ a percent in every direction, because a round thing has no face: 50 of the 322
 measure that way. Asking to square up to one frames it from where you are
 standing; it never spins the camera for nothing.
 
-The same thing happens without being asked when you pick up a piece, but only
+The same **turn** happens without being asked when you pick up a piece, but only
 when the piece is close to **edge-on** — more than about 70 degrees off its own
-face, where what you are aiming at is a line. That is the whole difference
-between a help and a nuisance, and it is worth keeping. Opening each of the
-twelve steps at its own view and asking every piece of that step: correcting
-anything not already within 35 degrees of square would turn the camera for 218
-of the 322 pieces, which is the auto-camera people complain about. The edge-on
-test turns it for 44, and for none at all on three of the steps. An unasked move
-also keeps your own zoom, so it is a turn of the model rather than a lurch
-towards it.
+face, where what you are aiming at is a line. That restraint is worth keeping.
+Opening each of the twelve steps at its own view and asking every piece of that
+step: correcting anything not already within 35 degrees of square would turn the
+camera for 218 of the 322 pieces, which is the auto-camera people complain
+about. The edge-on test turns it for 44, and for none at all on three of the
+steps.
 
-Distance was the part that went wrong three times before this landed, once
-asking for a `fit` of 52 and leaving the camera looking along the desk with
-nothing in shot. It is now in the same family as `benchView`, `glueView` and
-`screwView` — `max(floor, span * k + c)` — plus one floor those three never
-needed: never closer in than 35% of whatever the step itself is framed at. A
-microcontroller chip is 0.4 units wide, and framed on its own span it gave a
-screen of bare wood with an orange speck in it. Where a piece goes is told by
-what is around it.
+### Facing a piece is not the same as seeing it
+
+An unasked move used to keep your own zoom too — "a turn of the model rather
+than a lurch towards it", written here as a feature. It was the wrong call, and
+nothing in the suite could tell, because every camera test measured the
+*angle*. Marcus put it plainly: *why can't the camera pan to a better view of
+the highlighted area.*
+
+Projecting every piece's outline to the screen from the view the kit settles
+on, 1280×745:
+
+| | before | after |
+| --- | --- | --- |
+| median target, diagonal | **37.9 px** | **58.8 px** |
+| under 80 px | 239 of 322 | 191 |
+| under 40 px | 172 | 120 |
+| the seat itself off screen | 1 | **0** |
+| **the part you pick up, off screen** | **37 of 105** | **11** |
+
+The worst target was *Bulb, left* at **1.5 × 2.4 pixels**. Square-on, correctly
+angled, and invisible — the kit considered it solved.
+
+So the verb now has two faults to answer and tests each on its own, because
+either can be wrong while the other is fine. A poor **angle** is corrected by
+turning, on the old edge-on rule, unchanged. A target too **small** to aim at
+is corrected by coming closer, and one **out of shot** by panning to it. A
+piece that is merely far away keeps the heading you chose; only the framing
+moves.
+
+#### What the first two attempts got wrong
+
+Worth keeping, because both looked finished and both were worse than what they
+replaced.
+
+**Framing the seat alone.** Tighten onto the piece and the median goes to
+95 px — and the part you have to pick up goes off the edge. Measured in a real
+sequence rather than a sweep: one grab on the elevator step took the view from
+`fit` 23.2 to 8.12 and left the next part **890 pixels off the left of a
+1024-wide screen**, with 103 of 105 parts off screen across the kit. The 3D
+table is the *only* way to pick a piece up — the part cards are gone, and
+`tableDown` says so in as many words — so a shot that frames the seat
+beautifully and loses the part is a worse kit, not a better one.
+
+**Refusing to zoom out.** The rule "only ever move closer" sounds restrained
+and is the reason the above could not recover: a shot tightened for one piece
+was inherited by the next, which had no way to widen back to find its part.
+Sliding the target towards the part instead pushed 18 seats off the other edge
+— one off-screen problem traded for another.
+
+What works is letting the framing be whatever the piece needs, wider or
+narrower, and including the part in what it has to hold. Widening is not the
+auto-camera people complain about; **turning** is, and that is still held to
+the edge-on test. The cost is honest: the framing distance now swings up to
+69 units between consecutive pieces against 24.6 before.
+
+#### Never while the piece is in your hand
+
+The carried position is a ray from the pointer through the camera, so a camera
+that moves while you are holding something drags the piece out from under a
+motionless finger — **569 pixels** of it, measured, for a camera move of 25.8
+units. Framing has to be finished before the carry starts.
+
+Refusing to *start* a move is not enough, and that is the subtle half: selecting
+a piece begins a 0.8-second tween and a drag can begin fifty milliseconds
+later, so the piece is carried through the tail of the move. `startCarry` now
+drops the tween where it stands. Re-measured: **0 pixels**. Freezing leaves the
+camera between the old view and a better one, which beats a cut.
+
+#### What this still cannot fix
+
+The floor of 3.6 on `fit` keeps the camera out of the machine, and a bulb a
+tenth of a unit across is still a speck at 3.6. The bench steps are the real
+gap: their shot is chosen by the bench view, which has to span the assembly
+*and* the parts at once, so steps 6 and 8 — 108 pieces between them — barely
+move. That wants the parts brought to the work rather than the camera pulled
+between them, and it is not done.
+
+Separately measured and also not done: **43 pieces are more than half hidden**
+behind something already built, 24 of them completely. The kit already has
+x-ray and an exploded view, both locked to the finished-model showcase; turning
+x-ray on during the build takes the fully-hidden count from 24 to 4. That is a
+change to how the kit *looks* while you build it, so it wants a decision rather
+than a patch.
 
 ### Why the glue brush takes a press before a loose piece
 

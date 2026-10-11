@@ -8976,11 +8976,26 @@ const SQ_TIE = 1.08;                 /* within 8% of the least variance counts a
    times, broadside. A bulb, a bean jar, a turned foot, an owl's head do not:
    they come within a percent or two of flat in every direction, because a round
    thing has no face, and squaring up to one would spin the camera for no gain.
-   50 of the 322 measure that way. Below the threshold a square-up the player
-   asked for still frames the piece, from wherever they are standing; one they
-   did not ask for does nothing. */
+   50 of the 322 measure that way. Below the threshold nothing turns: a
+   square-up the player asked for still frames the piece from wherever they are
+   standing, and one they did not ask for still recentres and comes closer if
+   the piece is too small or out of shot. Only the turning is withheld. */
 const SQ_DECISIVE = 1.35;
-const SQUARE_ROOM = 0.35;            /* never closer in than this much of the step's own framing */
+const SQUARE_ROOM = 0.35;          /* never closer in than this much of the step's own framing */
+/* Fraction of the shorter side of the view a piece should cover before it
+   counts as something you can aim at. 0.14 is about 104 pixels of a 745-pixel
+   side; measured, it moves the median target from 37.9 pixels to 95. Raising
+   it zooms harder and more often. */
+const SQUARE_SMALL = 0.14;
+/* How far off the middle of the shot a piece may sit, as a fraction of `fit`,
+   before the camera pans to it. Recentring is the cheap half of this: it is
+   what makes a tight fit safe, and it is what "show me the highlighted bit"
+   actually asks for. */
+const SQUARE_OFF = 0.4;
+/* How much of the distance between a part and its seat the shot has to hold,
+   as a multiple of that distance. 1.05 keeps the part inside the frame rather
+   than on its edge; the bench shot uses 0.9 plus a flat 6 for the same job. */
+const SQUARE_REACH = 1.05;
 /* 13 directions: 3 axes, 6 edge, 4 corner -- one of each opposing pair. The
    world axes alone would do for a piece modelled square to the desk, and most
    are, but some pieces sit on a diagonal and a box drawn round those is thin in
@@ -9005,7 +9020,8 @@ const SQ_DIRS = (() => {
   return out.map(v => v.normalize());
 })();
 const _sqSum = new Float64Array(SQ_DIRS.length), _sqSq = new Float64Array(SQ_DIRS.length), _sqVar = new Float64Array(SQ_DIRS.length);
-const _sq1 = new T.Vector3(), _sq2 = new T.Vector3(), _sq3 = new T.Vector3(), _sq4 = new T.Vector3(), _sq5 = new T.Vector3();
+const _sq1 = new T.Vector3(), _sq2 = new T.Vector3(), _sq3 = new T.Vector3(), _sq4 = new T.Vector3(), _sq5 = new T.Vector3(), _sq6 = new T.Vector3();
+const _sqBx = new T.Box3();
 /* The direction to look from: the one the piece's own vertices vary least
    along, written into `out`. `cam` is where the camera is now, used only to
    settle ties. Returns how much flatter that direction is than the next
@@ -9050,11 +9066,22 @@ function viewAxis(root, cam, out) {
    piece has no geometry to measure, or -- unless the player asked outright --
    the camera is already square enough to it to leave alone.
 
-   `ask` is the whole difference between a help and a nuisance. A move the
-   player asked for frames the piece properly, distance and all. One they did
-   not keeps their own `fit`, so it is a turn of the model rather than a zoom:
-   small, and over before it can annoy. The zooms that had to be made advisory
-   earlier in this file were all the other kind. */
+   `ask` used to be the whole difference between a help and a nuisance: a move
+   the player asked for framed the piece properly, distance and all, while one
+   they did not keep their own `fit`, so it was a turn of the model rather than
+   a zoom. That was wrong, and measurably so. Projecting every piece's outline
+   from the view the kit settles on: the median target was **37.9 pixels** on
+   the diagonal of a 1280x745 screen, 239 of 322 were under 80, and the worst
+   was a bulb at 1.5 by 2.4. Squaring up reasoned about the ANGLE to a piece
+   and never about whether you could see it, so a piece eight pixels tall and
+   perfectly square-on counted as solved.
+
+   So there are two faults to fix and they are separate. A poor ANGLE is
+   corrected by turning. A target too SMALL to aim at is corrected by coming
+   closer. Either one alone can be wrong while the other is fine, so each is
+   tested on its own and only the one at fault moves -- a piece that is simply
+   far away keeps the heading the player chose. Automatic framing only ever
+   moves closer, never further out; `ask` still does both outright. */
 function squareView(rt, ask) {
   if (!rt || !view || !view.target) return null;
   const g = rt.ghost && rt.ghost.parent ? rt.ghost : rt.g;
@@ -9063,19 +9090,40 @@ function squareView(rt, ask) {
   const cam = len > 1e-4 ? _sq4.divideScalar(len) : null;
   const ratio = viewAxis(g, cam, _sq1);
   if (!ratio) return null;
-  /* no face to square up to: frame it from where the player is, or, if they did
-     not ask, leave the camera alone entirely */
-  const face = ratio >= SQ_DECISIVE;
-  if (!face && !ask) return null;
   partBox(g, _bx);
   if (_bx.isEmpty()) return null;
   _bx.getCenter(_sq2); _bx.getSize(_sq5);
+
+  /* How big the piece is on screen, without rendering anything to find out.
+     fitDistance puts the camera where a sphere of radius `fit` about the
+     target fills the smaller side of the view, so a piece of radius r covers
+     r/fit of that side -- and SQUARE_SMALL is that fraction written as "worth
+     aiming at". */
+  const half = _sq5.length() / 2;
+  const small = !BS.show && view.fit > 1e-4 && half / view.fit < SQUARE_SMALL;
+  /* And is it even in shot? Asking only "is it big enough" is not enough, and
+     costing it a regression was how that got noticed: once framing began
+     tightening the fit, a piece the camera had no reason to turn towards was
+     left at the previous piece's zoom, pointing somewhere else. Sixteen pieces
+     went clean off the screen, which is worse than small. A target further
+     from the centre of the shot than this is on its way out of frame. */
+  const away = _sq2.distanceTo(view.target);
+  const offCentre = view.fit > 1e-4 && away > view.fit * SQUARE_OFF;
+
+  const face = ratio >= SQ_DECISIVE;
+  let poor = false;
+  if (face && cam) {
+    if (_sq1.dot(cam) < 0) _sq1.negate();                  /* the near end of the axis */
+    poor = _sq1.dot(cam) < SQUARE_POOR;
+  }
+  const turn = face && (ask || poor);
+  /* Nothing to fix: square enough, big enough, and in shot. Leaving it alone
+     matters as much as moving -- a camera that tweens on every selection is
+     the nuisance this was always trying not to be. */
+  if (!ask && !turn && !small && !offCentre) return null;
+
   let theta = view.theta, phi = view.phi;
-  if (face) {
-    if (cam) {
-      if (_sq1.dot(cam) < 0) _sq1.negate();                /* the near end of the axis */
-      if (!ask && _sq1.dot(cam) >= SQUARE_POOR) return null;
-    }
+  if (turn) {
     /* a piece lying flat has no horizontal direction to aim along, so the
        player keeps the heading they chose and only the elevation changes */
     const h = Math.hypot(_sq1.x, _sq1.z);
@@ -9084,8 +9132,52 @@ function squareView(rt, ask) {
     phi = clamp(phi0 < SQUARE_TILT ? phi0 + SQUARE_TILT : phi0 - SQUARE_TILT, SQUARE_PHI[0], SQUARE_PHI[1]);
   }
   const room = BS.show ? 0 : (stepView().fit || 0) * SQUARE_ROOM;
-  return { target: [_sq2.x, _sq2.y, _sq2.z], theta, phi,
-    fit: ask ? Math.max(3.6, room, _sq5.length() / 2 * 1.15 + 1.6) : view.fit };
+  /* 3.6 is the floor that keeps the camera out of the machine. It is why the
+     smallest parts in the kit cannot be fixed by framing alone: a bulb a tenth
+     of a unit across is still a speck at 3.6, and no amount of this will
+     change that. */
+  let frame = Math.max(3.6, room, half * 1.15 + 1.6);
+  _sq6.copy(_sq2);
+
+  /* Keep the part you are reaching for in the shot. Framing the seat alone is
+     better to aim AT and useless to reach FROM: measured on the elevator step,
+     one grab took the view from fit 23.2 to 8.12 and left the next part 890
+     pixels off the left edge of a 1024-wide screen. A kit you cannot pick
+     parts up in is a worse kit than one whose targets are small.
+
+     So while the piece is still on the table the shot spans both, and only
+     once it is in hand -- when the table no longer matters -- is there nothing
+     to hold the framing open. That is the same reason the bench shot is as
+     wide as it is, arrived at the same way. */
+  /* The part you reach for is TABLE.clones[id], not rt.g: rt.g sits at the
+     seat, hidden, until the piece is in hand. Reaching for the wrong one is
+     why the first attempt at this measured as doing nothing at all -- the
+     distance it was keeping open was zero. */
+  const lay = !ask && rt.state === 'tray' && TABLE && TABLE.clones && TABLE.clones[rt.def.id];
+  if (lay && lay.visible) {
+    partBox(lay, _sqBx);
+    if (!_sqBx.isEmpty()) {
+      _sqBx.getCenter(_sq3);
+      const reach = _sq3.distanceTo(_sq2);
+      /* Widen enough to hold the part, and do not move the shot off the seat
+         to do it. Sliding the target towards the part was tried and pushed 18
+         seats off the other edge -- one off-screen problem traded for another.
+         `fit` is about the radius of what the shot holds, so holding a point
+         `reach` away costs about that much fit. Where that is wider than the
+         view already is, nothing tightens: a part on the far side of the desk
+         from its seat keeps the shot the kit has always used, which is the
+         honest answer rather than a clever one. */
+      if (reach > 0.01) frame = Math.max(frame, reach * SQUARE_REACH + half);
+    }
+  }
+  /* Once we have decided to act, take the framing the piece actually needs,
+     wider or narrower. Refusing to widen was the mistake that cost two rounds
+     of this: it meant a shot tightened for one piece was inherited by the
+     next, which then had its part 890 pixels off the edge and no way to get it
+     back. Widening is not the auto-camera people complain about -- that is
+     TURNING, which is still held to the edge-on test. A camera that will not
+     show you the part you have to pick up is not restrained, it is broken. */
+  return { target: [_sq6.x, _sq6.y, _sq6.z], theta, phi, fit: frame };
 }
 /* what a square-up is about: the piece being worked on, else the one in hand,
    else the one the manual wants next */
@@ -9096,6 +9188,13 @@ function squareTarget() {
   return suggestedPart();
 }
 function squareUp(ask, part) {
+  /* Never once the piece is in hand. The carried position is a ray from the
+     pointer through the camera, so a camera that moves while you hold
+     something drags the piece out from under a motionless finger: measured at
+     **569 pixels** of travel on a 1280-wide screen for a camera move of 25.8
+     units. Framing happens as a piece is selected and must be over before the
+     carry starts. Asking outright still works -- then the player means it. */
+  if (!ask && BS.drag && BS.drag.started) return false;
   /* `part` matters: focusPart runs as a piece is picked up, before BS.pick has
      caught up, so without it the camera would square to whichever piece the
      manual happens to be suggesting rather than the one in your hand. */
@@ -12660,6 +12759,13 @@ function startCarry(d) {
   const rt = RT[d.id];
   rt.carryLift = carryLift(rt);
   carryScan(d.id);
+  /* Freeze any framing still in flight, for the same reason. Refusing to
+     START a move is not enough: selecting a piece begins a 0.8s tween and a
+     drag can begin 50ms later, so without this the piece is carried through
+     the tail of a camera move and slides anyway. Stopping leaves the camera
+     wherever the tween had reached, which is somewhere between the old view
+     and a better one -- a cut would be worse than a partial move. */
+  viewTween = null;
   rt.state = 'drag'; rt.dragHot = false; rt.dragWant = null; rt.tw = null;
   d.el.classList.add('held');
   if (FEATURES.autoTool && BS.tool !== 'hand') setTool('hand', false);
@@ -15425,7 +15531,7 @@ function boot() {
   // handle for automated checks of this test build
   hudInit();
   setTimeout(() => { if (!BS.show && BS.unboxed && !BS.boxing) coachShow(); }, 2200);
-  window.__mew = { GLASS_TINTS, applyGlass, wheelSlop, WHEEL_SLOP, squareView, squareUp, squareTarget, suggestedPart, viewAxis, ghostEdges, updateGhosts, CARRY, carryScan, carryFloor, carryClear, insertRoom, insertLift, insertAxis, insertDepth, insertSuspect, insertSample, insertNear, preseat, SQUARE_TILT, SQUARE_PHI, SQUARE_POOR, SQ_TIE, SQ_DECISIVE, SQUARE_ROOM, SQ_DIRS, focusPart, pbookShow, strictNext, hudSync, coachShow, sheetShow, VOFF, CINE, IBL, cineReveal, cineTour, cineStop, cineUniforms, postRender, setAmbience, HERO_VIEW, tick: dt => { cineTick(dt); hudTick(dt); updateView(dt); Build.update(dt); envTick(dt); updateSim(dt); UI.update(dt); }, MOTES, STEAM, POST, postLook, toolDriver, get stageW() { return stageW; }, get stageH() { return stageH; }, TABLE, tableDown, stageTap, stepView, DM, MURAL, BOOK, bookRead, UI, TABLE, tableLayout, BOX, boxIntro, boxOpen, boxFinish, toolSwing, TOOLVIS, ENV, envShow, PIECE, Wheel, ctrl, ROOM, ROOM_VIEWS, enterRoom, exitRoom, roomView, GLOWS, LIGHTS3D, FEATURES, CAFE, ASM, benchFocus: () => benchFocus(), STEPS, WL, WX, WY, MECH, OWL, DM, ART_TEX, WHEEL_TOOLS, finishInstant, ctrl, Wheel, CAM, turnBy, get tween() { return viewTween; }, BS, RT, SIM, Build, UI, Wire, view, renderer, camera, scene, layers, goView };
+  window.__mew = { GLASS_TINTS, applyGlass, wheelSlop, WHEEL_SLOP, squareView, squareUp, squareTarget, suggestedPart, viewAxis, ghostEdges, updateGhosts, CARRY, carryScan, carryFloor, carryClear, insertRoom, insertLift, insertAxis, insertDepth, insertSuspect, insertSample, insertNear, preseat, SQUARE_TILT, SQUARE_PHI, SQUARE_POOR, SQUARE_SMALL, SQUARE_OFF, SQUARE_REACH, SQ_TIE, SQ_DECISIVE, SQUARE_ROOM, SQ_DIRS, focusPart, pbookShow, strictNext, hudSync, coachShow, sheetShow, VOFF, CINE, IBL, cineReveal, cineTour, cineStop, cineUniforms, postRender, setAmbience, HERO_VIEW, tick: dt => { cineTick(dt); hudTick(dt); updateView(dt); Build.update(dt); envTick(dt); updateSim(dt); UI.update(dt); }, MOTES, STEAM, POST, postLook, toolDriver, get stageW() { return stageW; }, get stageH() { return stageH; }, TABLE, tableDown, stageTap, stepView, DM, MURAL, BOOK, bookRead, UI, TABLE, tableLayout, BOX, boxIntro, boxOpen, boxFinish, toolSwing, TOOLVIS, ENV, envShow, PIECE, Wheel, ctrl, ROOM, ROOM_VIEWS, enterRoom, exitRoom, roomView, GLOWS, LIGHTS3D, FEATURES, CAFE, ASM, benchFocus: () => benchFocus(), STEPS, WL, WX, WY, MECH, OWL, DM, ART_TEX, WHEEL_TOOLS, finishInstant, ctrl, Wheel, CAM, turnBy, get tween() { return viewTween; }, BS, RT, SIM, Build, UI, Wire, view, renderer, camera, scene, layers, goView };
 }
 
 main();
