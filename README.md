@@ -81,6 +81,7 @@ What's covered:
 | Carrying | A piece in hand rides over the machine instead of through it, the glide in from the table does too, and the lift never takes the piece away from the pointer |
 | Fitting | A piece is held only as far above its seat as there is room, checked against every piece of every step with denser sampling than the kit itself uses |
 | Fitting | A piece with no way down comes in from the side, along a path that is clear |
+| Text | Every run of interface text clears the WCAG contrast floor, across the build screen, the menu, its settings page and the coach card |
 | Budget | The finished kit stays under 950 draw calls and 400k triangles on a phone |
 | Café | The door is in plain sight rather than behind a tab; the room stays shut until the kit is done, opens on every seat, and puts the front of the building back on the way out |
 | Long game | All 322 pieces build to the final step; progress survives a reload; the finale plays and can always be skipped |
@@ -135,6 +136,41 @@ that piece's group and hides and moves with it. Instancing the same screw
 across several pieces reintroduces exactly the problem batching has: the pieces
 stop being separately addressable. Otherwise, raise the ceiling deliberately
 with a note about why.
+
+### Text you have to read
+
+Nothing had ever checked the interface text, and the quiet ink — section
+labels, the notes under each setting, the sub-line in the header — measured
+**4.03** against the panel it sits on, under the 4.5 the WCAG floor asks for at
+that size. Twelve runs of text in the settings menu failed on it. That is the
+menu an older player has to read to find the camera speed.
+
+`--ink-3` is now `#616a7c`, the gentlest shade of the same colour that clears
+4.5 on all three surfaces it appears on: 5.06 on the panel, 4.64 on the inset
+panel, 4.53 on the page. Dark mode already cleared at 5.65 and is untouched.
+The parts tray and the showcase card were measured too and were never in
+trouble — 10.95 to 14.95.
+
+The sweep that checks this has one guard worth keeping. Panels fade in, and
+measured mid-fade every run inside them is skipped — the first version of the
+test found 9 runs instead of 32 and passed on an empty sample. It now waits for
+the fade and refuses to pass on fewer than 25 runs.
+
+### The cost of holding a piece over the work
+
+Keeping a carried part out of the machine means solving for its height on every
+pointer move, against the box of every piece already placed. That is new work in
+the most-used interaction in the kit, so it was timed rather than assumed.
+
+Measured at the last step, 318 pieces placed, 274 boxes in the list: **36
+microseconds per pointer move**, against 20 for the old desk-only clamp. At a
+generous 120 moves a second that is 4ms of CPU per second of dragging. It is not
+a budget worth watching.
+
+What keeps it cheap is that the boxes are gathered once, at pick-up, and nothing
+placed moves while you carry. If that ever stops being true — a piece that
+animates while another is in hand — this becomes a per-move scan of 700 meshes
+instead, and the number above stops being right.
 
 ### Timing in tests: never race a timer you cannot win
 

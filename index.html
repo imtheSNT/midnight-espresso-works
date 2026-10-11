@@ -8,7 +8,15 @@
 <style>
 :root{
   --bg:#e6ebed; --panel:#f5f7f7; --panel-2:#e8eef0; --glass:rgba(245,247,247,.88);
-  --ink:#16223a; --ink-2:#44506a; --ink-3:#6f7a8e; --rule:#cbd4d8;
+  /* ink-3 is the quiet one -- section labels, the notes under the settings,
+     the sub-line in the header. It was #6f7a8e, which measures 4.03 against
+     the panel it sits on, under the 4.5 the WCAG text floor asks for at that
+     size. Twelve runs of text in the menu failed on it, which is the menu an
+     older player has to read to find the camera speed. #616a7c is the
+     gentlest shade of the same colour that clears 4.5 on all three surfaces
+     it appears on: 5.06 on the panel, 4.64 on the inset panel, 4.53 on the
+     page. Dark mode already cleared at 5.65 and is left alone. */
+  --ink:#16223a; --ink-2:#44506a; --ink-3:#616a7c; --rule:#cbd4d8;
   --copper:#a4561f; --copper-soft:#f0dccb; --teal:#2a6668; --teal-soft:#d3e6e5;
   --amber:#b97c12; --good:#2d7a54; --bad:#ad3f2d;
   --wood:#e5d2ad; --wood-2:#d9c299; --cut:#7d4f2b; --wood-ink:#4a2f19;
