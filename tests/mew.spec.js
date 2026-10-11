@@ -677,17 +677,26 @@ test.describe('inside the café', () => {
     await buildWholeKit(page);
     await enterShowcase(page);
 
-    /* Open the panel, stop any film and measure in one round trip. The café's
-       film rolls itself after 24 seconds of quiet in the showcase and
-       body.cine hides the whole panel, so a test that spends longer than that
-       between opening the panel and looking at it measures a door of width 0.
-       Under full-suite load it does spend longer. */
-    const door = await page.evaluate(() => {
+    /* Stopping the film in the same round trip was not enough on its own --
+       this still measured a door of width 0 under load. So: stop it, take the
+       classes off by hand in case one lingers, pin CINE.lastIn so it cannot
+       roll again, open the panel, and then WAIT for the door to have a size
+       rather than assuming the layout has caught up. If it never does, the
+       failure now carries the state that explains why instead of just a zero. */
+    await page.evaluate(() => {
       const m = window.__mew;
       if (m.CINE.busy) m.cineStop(true);
+      document.body.classList.remove('cine', 'cine-bars', 'cine-film', 'cine-reveal');
+      m.CINE.lastIn = performance.now() + 60_000;
       m.sheetShow(true);
       for (let i = 0; i < 60; i++) m.tick(1 / 60);
-      m.CINE.lastIn = performance.now();          // and do not let it start again
+    });
+    await page.waitForFunction(() => {
+      const el = document.querySelector('[data-act="room"]');
+      return !!el && el.getBoundingClientRect().width > 80;
+    }, null, { timeout: 15_000 }).catch(() => {});
+
+    const door = await page.evaluate(() => {
       const el = document.querySelector('[data-act="room"]');
       if (!el) return { exists: false };
       const cs = getComputedStyle(el), r = el.getBoundingClientRect();
@@ -701,13 +710,16 @@ test.describe('inside the café', () => {
         width: Math.round(r.width), height: Math.round(r.height),
         shown: cs.display !== 'none' && cs.visibility === 'visible',
         reachable: !!(hit && (hit === el || el.contains(hit))),
+        /* for when this fails on a machine I am not sitting at */
+        why: document.body.className + ' | parent ' + (el.offsetParent ? el.offsetParent.id || el.offsetParent.className : 'none')
+          + ' | sheet ' + (() => { const sh = document.getElementById('sheet'); return sh ? Math.round(sh.getBoundingClientRect().width) : 'gone'; })(),
       };
     });
 
     expect(door.exists, 'no way into the café at all').toBe(true);
     // it used to sit in the café pane, so it was 0x0 whenever another tab was open
     expect(door.buriedInPane, 'the café door is hidden inside a tab again').toBeNull();
-    expect(door.width, 'the café door has no width').toBeGreaterThan(80);
+    expect(door.width, `the café door has no width — ${door.why}`).toBeGreaterThan(80);
     expect(door.height, 'the café door has no height').toBeGreaterThan(20);
     expect(door.shown, 'the café door is not displayed').toBe(true);
     expect(door.reachable, 'something is sitting on top of the café door').toBe(true);
@@ -1471,6 +1483,65 @@ test.describe('holding a piece before it goes in', () => {
     return out;
   });
 
+  test('with no way down, comes in from the side instead', async ({ page }) => {
+    test.setTimeout(240_000);
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    const r = await page.evaluate(() => {
+      const m = window.__mew, T = window.THREE;
+      const placed = [], out = [];
+      const rc = new T.Raycaster(), o = new T.Vector3();
+      const tick = (n) => { for (let i = 0; i < n; i++) m.tick(1 / 60); };
+      for (let st = 0; st < m.STEPS.length; st++) {
+        let id;
+        while ((id = m.strictNext())) {
+          const rt = m.RT[id];
+          const off = m.preseat(rt, new T.Vector3());
+          const len = off.length(), dir = off.clone().normalize();
+          if (placed.length && len > 0.05 && Math.abs(dir.y) < 0.5) {
+            /* sampled far more densely than the kit does when it picks the
+               direction, so a direction that only looks clear to the kit's own
+               sampling shows up here */
+            const g = rt.ghost; g.updateMatrixWorld(true);
+            let blocked = false;
+            const pts = [];
+            g.traverse(c => {
+              if (!c.isMesh || c.isInstancedMesh || c.userData.xray || c.userData.rim) return;
+              const p = c.geometry.attributes.position;
+              if (!p || !p.count) return;
+              const stride = Math.max(1, Math.ceil(p.count / 96));
+              for (let i = 0; i < p.count; i += stride) pts.push(new T.Vector3().fromBufferAttribute(p, i).applyMatrix4(c.matrixWorld));
+            });
+            rc.near = 0; rc.far = len - 0.03;
+            for (const p of pts) {
+              o.copy(p).addScaledVector(dir, 0.03);
+              rc.set(o, dir);
+              if (rc.intersectObjects(placed, false).length) { blocked = true; break; }
+            }
+            out.push({ id, name: rt.def.name, len: +len.toFixed(2), blocked });
+          }
+          m.finishInstant(id); tick(1);
+          rt.g.traverse(c => { if (c.isMesh && !c.isInstancedMesh) placed.push(c); });
+        }
+        if (m.STEPS[m.BS.step].wire && !m.BS.wired) m.Wire.finish(true);
+        if (m.BS.step < m.STEPS.length - 1) { m.Build.nextStep(); tick(1); }
+      }
+      return out;
+    });
+
+    /* 30 of them, measured, 20 pressed and 10 placed. The bound is well under
+       that so it fails loudly if the sideways branch stops firing, not if one
+       piece changes its mind. */
+    expect(r.length, 'no piece comes in from the side any more').toBeGreaterThanOrEqual(18);
+    const blocked = r.filter(x => x.blocked);
+    /* 4 of the 30 still scrape something on the way in; the bound is there to
+       catch a sideways pick that is wrong wholesale, which is what the first
+       version of this was -- 13 of 34 */
+    expect(blocked.length, 'sideways paths that are blocked anyway: ' +
+      blocked.map(x => `${x.id} ${x.name} by ${x.len}`).join('; ')).toBeLessThanOrEqual(8);
+  });
+
   test('is never lifted into whatever is above it', async ({ page }) => {
     test.setTimeout(240_000);
     await openKit(page);
@@ -1481,8 +1552,8 @@ test.describe('holding a piece before it goes in', () => {
     /* The kit spends a budget of 128 sample points on a piece; this samples up
        to 96 per mesh, so it is the stricter of the two by design and a fix
        that only satisfied the kit's own sampling would not pass here. It
-       catches 32, against 104 before any of this, and a wholesale return to a
-       fixed lift puts it straight back to three figures. The 32 are small
+       catches 36, against 104 before any of this, and a wholesale return to a
+       fixed lift puts it straight back to three figures. The 36 are small
        overhangs on fiddly pieces -- the bound is set to fail on a regression,
        not to claim the last of them. */
     expect(through.length, 'pieces still lifted into something: ' +
