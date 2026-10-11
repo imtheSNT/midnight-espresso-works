@@ -141,6 +141,35 @@ saturates the cores, and two Chromiums doing it at once turn every timing
 measurement in this file into a guess. Three machines each running one test at a
 time is not the same thing as one machine running three.
 
+### Keeping the CI actions current
+
+Every run was printing a deprecation warning: the four `actions/*` steps were
+pinned at `@v4`, which ships a Node 20 runtime, and GitHub was already
+**forcing them onto Node 24** rather than running them as written. A warning
+that says the platform is overriding you is a red run with a date on it, so the
+pins are now current — checkout and setup-node at v7, upload-artifact at v7,
+download-artifact at v8 — and `node-version` is 24 rather than 20, which is
+past end of life. Playwright 1.56 asks for `>=18`.
+
+Four actions across up to four majors is the kind of bump that turns a green
+run red, so each one's own release notes were read first rather than trusted.
+Two mattered and neither bites here:
+
+- **download-artifact v5** changed the output path for downloading a *single*
+  artifact **by ID**. Its migration guide lists "you already use
+  `merge-multiple: true`" as needing no action, which is what the report job
+  does.
+- **setup-node v5** added automatic caching when `package.json` has a
+  `packageManager` field. This one does not have that field, so nothing starts
+  caching behind your back. `package-manager-cache: false` turns it off if that
+  ever changes.
+
+The rest were runtime bumps and ESM repackaging, which the notes describe as
+transparent to the caller: upload-artifact v7's direct-upload mode is opt-in
+through an `archive` parameter nothing here sets, and download-artifact v8 now
+*errors* on a hash mismatch where it used to warn, which is the behaviour you
+would pick anyway.
+
 ### Performance
 
 Measured on a phone-sized screen with the kit fully built: **785 draw calls**
