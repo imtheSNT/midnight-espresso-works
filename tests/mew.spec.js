@@ -1417,6 +1417,80 @@ test.describe('carrying a piece over the work', () => {
 });
 
 /* ------------------------------------------------------------------ *
+ * Where a piece is held before it goes in. Every piece used to be held
+ * the same distance above its seat whether or not there was that much
+ * room, so a third of them were lifted into whatever was above them --
+ * the four feet under the floor plate are the plainest case. The lift
+ * is now the room there is.
+ *
+ * The check below samples the piece more densely than the kit does when
+ * it measures, so a lift that only satisfies the kit's own sampling
+ * does not pass.
+ * ------------------------------------------------------------------ */
+test.describe('holding a piece before it goes in', () => {
+  /** Walk the build in order; for each piece, is its pre-seat lift clear? */
+  const survey = (page) => page.evaluate(() => {
+    const m = window.__mew, T = window.THREE;
+    const placed = [];
+    const out = [];
+    const rc = new T.Raycaster();
+    const o = new T.Vector3();
+    const tick = (n) => { for (let i = 0; i < n; i++) m.tick(1 / 60); };
+    const EPS = 0.03;
+    for (let st = 0; st < m.STEPS.length; st++) {
+      let id;
+      while ((id = m.strictNext())) {
+        const rt = m.RT[id];
+        const lift = m.preseat(rt, new T.Vector3()).y;
+        if (placed.length && lift > EPS * 2) {
+          const g = rt.ghost;
+          g.updateMatrixWorld(true);
+          const pts = [];
+          g.traverse(c => {
+            if (!c.isMesh || c.isInstancedMesh || c.userData.xray || c.userData.rim) return;
+            const p = c.geometry.attributes.position;
+            if (!p || !p.count) return;
+            const stride = Math.max(1, Math.ceil(p.count / 96));
+            for (let i = 0; i < p.count; i += stride) pts.push(new T.Vector3().fromBufferAttribute(p, i).applyMatrix4(c.matrixWorld));
+          });
+          rc.near = 0; rc.far = lift - EPS;
+          let hit = 0;
+          for (const p of pts) {
+            o.copy(p); o.y += EPS;
+            rc.set(o, new T.Vector3(0, 1, 0));
+            if (rc.intersectObjects(placed, false).length) { hit++; break; }
+          }
+          if (hit) out.push({ id, name: rt.def.name, step: st, lift: +lift.toFixed(2) });
+        }
+        m.finishInstant(id); tick(1);
+        rt.g.traverse(c => { if (c.isMesh && !c.isInstancedMesh) placed.push(c); });
+      }
+      if (m.STEPS[m.BS.step].wire && !m.BS.wired) m.Wire.finish(true);
+      if (m.BS.step < m.STEPS.length - 1) { m.Build.nextStep(); tick(1); }
+    }
+    return out;
+  });
+
+  test('is never lifted into whatever is above it', async ({ page }) => {
+    test.setTimeout(240_000);
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    const through = await survey(page);
+
+    /* The kit spends a budget of 128 sample points on a piece; this samples up
+       to 96 per mesh, so it is the stricter of the two by design and a fix
+       that only satisfied the kit's own sampling would not pass here. It
+       catches 32, against 104 before any of this, and a wholesale return to a
+       fixed lift puts it straight back to three figures. The 32 are small
+       overhangs on fiddly pieces -- the bound is set to fail on a regression,
+       not to claim the last of them. */
+    expect(through.length, 'pieces still lifted into something: ' +
+      through.slice(0, 10).map(t => `${t.id} ${t.name} by ${t.lift}`).join('; ')).toBeLessThanOrEqual(40);
+  });
+});
+
+/* ------------------------------------------------------------------ *
  * The glowing outline that shows where a piece goes. Marcus's aunt said
  * she could not see it, and she was right: measured by rendering the
  * same frame with the ghost shown and hidden and diffing, the warm
