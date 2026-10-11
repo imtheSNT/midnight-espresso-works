@@ -1562,6 +1562,112 @@ test.describe('holding a piece before it goes in', () => {
 });
 
 /* ------------------------------------------------------------------ *
+ * Text in the interface. Nothing had ever checked it, and the quiet
+ * ink -- section labels, the notes under each setting, the sub-line in
+ * the header -- measured 4.03 against the panel it sits on, under the
+ * 4.5 the WCAG text floor asks for at that size. Twelve runs of text in
+ * the settings menu failed on it, which is the menu an older player has
+ * to read to find the camera speed.
+ * ------------------------------------------------------------------ */
+test.describe('text you have to read', () => {
+  /** Every run of visible text, its colour over whatever is behind it. */
+  const sweep = (page) => page.evaluate(() => {
+    const lum = (r, g, b) => {
+      const f = v => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+    };
+    const parse = (c) => {
+      const m = c.match(/rgba?\(([^)]+)\)/);
+      if (!m) return null;
+      const p = m[1].split(',').map(x => parseFloat(x));
+      return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 };
+    };
+    const over = (fg, bg) => ({ r: fg.r * fg.a + bg.r * (1 - fg.a), g: fg.g * fg.a + bg.g * (1 - fg.a),
+                                b: fg.b * fg.a + bg.b * (1 - fg.a), a: 1 });
+    /* what is behind it: the first thing up the tree that is not see-through,
+       compositing anything translucent on the way */
+    const bgOf = (el) => {
+      let node = el, acc = null;
+      while (node && node.nodeType === 1) {
+        const c = parse(getComputedStyle(node).backgroundColor);
+        if (c && c.a > 0.01) { acc = acc ? over(acc, c) : c; if (acc.a >= 0.99) return acc; }
+        if (node.tagName === 'CANVAS') return null;
+        node = node.parentElement;
+      }
+      return acc && acc.a > 0.5 ? acc : null;
+    };
+    const out = [];
+    document.querySelectorAll('*').forEach(el => {
+      const text = [...el.childNodes].filter(n => n.nodeType === 3 && n.textContent.trim())
+        .map(n => n.textContent.trim()).join(' ');
+      if (!text) return;
+      const cs = getComputedStyle(el);
+      if (cs.display === 'none' || cs.visibility === 'hidden' || +cs.opacity < 0.1) return;
+      /* and nothing inside something faded out: the finale's title card is
+         laid out at all times with its parent at opacity 0 */
+      for (let a = el.parentElement; a; a = a.parentElement) {
+        const acs = getComputedStyle(a);
+        if (acs.display === 'none' || acs.visibility === 'hidden' || +acs.opacity < 0.1) return;
+      }
+      const r = el.getBoundingClientRect();
+      if (r.width < 2 || r.height < 2) return;
+      const fg = parse(cs.color), bg = bgOf(el);
+      if (!fg || !bg) return;                 /* straight on the 3D scene: not a fixed colour */
+      const f = over(fg, bg);
+      const l1 = lum(f.r, f.g, f.b), l2 = lum(bg.r, bg.g, bg.b);
+      const size = parseFloat(cs.fontSize), weight = +cs.fontWeight || 400;
+      const large = size >= 24 || (size >= 18.66 && weight >= 700);
+      out.push({
+        text: text.slice(0, 34), size: +size.toFixed(1),
+        sel: el.id ? '#' + el.id : el.className ? '.' + String(el.className).split(' ')[0] : el.tagName,
+        ratio: +((Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05)).toFixed(2),
+        need: large ? 3 : 4.5,
+      });
+    });
+    return out;
+  });
+
+  /* panels fade in; measured mid-fade their text is skipped and the sweep
+     quietly checks nothing, which is how the first version of this passed */
+  const settled = (page) => page.waitForFunction(() => {
+    const els = ['menu', 'sheet', 'coach'].map(id => document.getElementById(id));
+    return els.every(e => !e || e.hidden || getComputedStyle(e).opacity === '1');
+  }, null, { timeout: 10_000 }).catch(() => {});
+
+  test('clears the contrast floor wherever it appears', async ({ page }) => {
+    test.setTimeout(120_000);
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    const seen = new Map();
+    const states = [
+      ['the build screen', () => {}],
+      ['the menu open', () => { window.__mew.UI.toggleMenu(true); }],
+      ['the settings page of the menu', () => { window.__mew.UI.menuView('settings'); }],
+      ['the coach card', () => { window.__mew.UI.toggleMenu(false); window.__mew.coachShow(); }],
+    ];
+    for (const [name, fn] of states) {
+      await page.evaluate(`(${fn.toString()})()`);
+      await settled(page);
+      await page.waitForTimeout(200);
+      (await sweep(page)).forEach(r => {
+        const k = r.sel + '|' + r.text;
+        if (!seen.has(k)) seen.set(k, { ...r, state: name });
+      });
+    }
+
+    const all = [...seen.values()];
+    /* the guard that matters: a sweep that finds nothing must not pass. The
+       menu alone is 28 runs once it has finished fading in. */
+    expect(all.length, 'barely any text was measured, so this proves nothing').toBeGreaterThan(25);
+    const fails = all.filter(r => r.ratio < r.need).sort((a, b) => a.ratio - b.ratio);
+    expect(fails, 'interface text under the contrast floor: ' +
+      fails.slice(0, 8).map(r => `${r.ratio} needs ${r.need} — ${r.size}px ${r.sel} "${r.text}" [${r.state}]`).join('; ')
+      ).toEqual([]);
+  });
+});
+
+/* ------------------------------------------------------------------ *
  * The glowing outline that shows where a piece goes. Marcus's aunt said
  * she could not see it, and she was right: measured by rendering the
  * same frame with the ghost shown and hidden and diffing, the warm
