@@ -909,7 +909,21 @@ test.describe('squaring up to a piece', () => {
       return { was, asked, unasked, ghost: [c.x, c.y, c.z] };
     }, piece);
 
-    expect(r.unasked, 'a round piece pulled the camera round on its own').toBeNull();
+    /* The point is that a piece with no face does not get SPUN. It may still
+       be recentred and brought closer -- that is the framing half of the verb
+       and it is the half players were missing -- so the check is on the angle,
+       not on whether the camera moved at all. This used to assert null, which
+       also passed when the camera left a piece eight pixels tall in a corner. */
+    if (r.unasked) {
+      expect(r.unasked.theta, 'a round piece swung the camera round on its own').toBeCloseTo(r.was.theta, 5);
+      expect(r.unasked.phi, 'a round piece tilted the camera on its own').toBeCloseTo(r.was.phi, 5);
+      /* Nothing is asserted about `fit` on purpose. Framing is allowed to go
+         either way now -- it has to widen to keep the part you pick up in the
+         shot, and an earlier version of this line pinned it to "closer only",
+         which is exactly the rule that left parts off the screen with no way
+         back. The invariant here is about TURNING, which is what the test is
+         named for. */
+    }
     expect(r.asked, 'asking to square up to a round piece did nothing at all').not.toBeNull();
     expect(r.asked.theta, 'the camera swung round for a piece with no face').toBeCloseTo(r.was.theta, 5);
     expect(r.asked.phi, 'the camera tilted for a piece with no face').toBeCloseTo(r.was.phi, 5);
@@ -1216,6 +1230,96 @@ test.describe('squaring up to a piece', () => {
      tells you where it goes -- the smallest pieces come out at a couple of
      percent of the stage and that is the right answer. What a framing shot does
      owe you is that the piece is all there and in the middle of it. */
+  /* Nothing here had ever asked the question a player asks: can I see the
+     thing I am being told to aim at? Squaring up was tested for ANGLE, and it
+     passed, while the median target was 37.9 pixels on the diagonal of a
+     1280x745 screen and the smallest was a bulb at 1.5 by 2.4. A test that
+     measures only the angle is happy with a speck. */
+  test('the piece you are aiming at is big enough to see, and on the screen', async ({ page }) => {
+    test.setTimeout(900_000);
+    await openKit(page);
+    await openBoxAndLayOut(page);
+
+    const r = await page.evaluate(() => {
+      const m = window.__mew, T = window.THREE;
+      const tick = (n) => { for (let i = 0; i < n; i++) m.tick(1 / 60); };
+      const v = new T.Vector3(), out = [];
+      const W = m.stageW, H = m.stageH;
+      for (let st = 0; st < m.STEPS.length; st++) {
+        let id;
+        while ((id = m.strictNext())) {
+          const rt = m.RT[id];
+          /* exactly what the kit does when a piece becomes the focus */
+          m.BS.pick = id; m.updateGhosts(); m.focusPart(rt); tick(75);
+          const g = rt.ghost; g.updateMatrixWorld(true);
+          let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9, n = 0;
+          g.traverse(c => {
+            if (!c.isMesh || c.isInstancedMesh || c.userData.xray || c.userData.rim) return;
+            const p = c.geometry.attributes.position;
+            if (!p || !p.count) return;
+            const stride = Math.max(1, Math.ceil(p.count / 24));
+            for (let i = 0; i < p.count; i += stride) {
+              v.fromBufferAttribute(p, i).applyMatrix4(c.matrixWorld).project(m.camera);
+              const x = (v.x * 0.5 + 0.5) * W, y = (-v.y * 0.5 + 0.5) * H;
+              if (x < minX) minX = x;
+              if (x > maxX) maxX = x;
+              if (y < minY) minY = y;
+              if (y > maxY) maxY = y;
+              n++;
+            }
+          });
+          const clone = m.TABLE && m.TABLE.clones && m.TABLE.clones[id];
+          let partOff = false;
+          if (clone && clone.visible) {
+            clone.updateMatrixWorld(true);
+            const c = new T.Box3().setFromObject(clone).getCenter(new T.Vector3()).project(m.camera);
+            const cx = (c.x * 0.5 + 0.5) * W, cy = (-c.y * 0.5 + 0.5) * H;
+            partOff = cx < 0 || cx > W || cy < 0 || cy > H;
+          }
+          if (n >= 4) out.push({ id, name: rt.def.name,
+            diag: +Math.hypot(maxX - minX, maxY - minY).toFixed(1),
+            off: (maxX < 0 || minX > W || maxY < 0 || minY > H),
+            hasClone: !!(clone && clone.visible), partOff,
+            bench: !!(rt.def.bench || rt.def.install) });
+          m.finishInstant(id); tick(1);
+        }
+        if (m.STEPS[m.BS.step].wire && !m.BS.wired) m.Wire.finish(true);
+        if (m.BS.step < m.STEPS.length - 1) { m.Build.nextStep(); tick(1); }
+      }
+      const d = out.map(o => o.diag).sort((a, b) => a - b);
+      const wc = out.filter(o => o.hasClone);
+      return { n: out.length, median: d[Math.floor(d.length / 2)],
+        off: out.filter(o => o.off),
+        clones: wc.length, partOff: wc.filter(o => o.partOff).length,
+        tinyFree: out.filter(o => !o.bench && o.diag < 40).length };
+    });
+
+    expect(r.n, 'the walk did not reach the whole kit').toBeGreaterThan(300);
+
+    /* Off screen is worse than small, and it is the way this goes wrong when
+       framing tightens without recentring: a piece the camera has no reason to
+       turn towards keeps the previous piece's zoom, pointed somewhere else.
+       Sixteen pieces went off screen that way before the recentring. */
+    expect(r.off.map(o => `${o.id} ${o.name}`), 'pieces framed clean off the screen').toEqual([]);
+
+    /* 58.8px measured, against 37.9 before. The bound is under it so this
+       fails on the framing being dropped, not on a piece changing size. */
+    expect(r.median, 'the median piece is too small on screen to aim at').toBeGreaterThan(50);
+
+    /* The other half, and the one that killed two earlier attempts at this.
+       The 3D table is the ONLY way to pick a piece up -- the part cards are
+       gone -- so a shot that frames the seat beautifully and leaves the part
+       off the edge is a worse kit, not a better one. Framing the seat alone
+       put 103 of these off screen. Measured here: 11, against 37 in the
+       version that shipped before any of this. */
+    expect(r.partOff, 'parts you have to pick up are off the screen').toBeLessThanOrEqual(20);
+
+    /* Bench pieces excluded: their shot is chosen by the bench view, which has
+       to span the assembly and the parts at once, so a bulb on it stays a few
+       pixels whatever this does. */
+    expect(r.tinyFree, 'too many free-standing pieces are specks').toBeLessThanOrEqual(110);
+  });
+
   test('puts the piece on screen, whole, and in the middle of the shot', async ({ page }) => {
     test.setTimeout(150_000);
     await openKit(page);
@@ -2122,7 +2226,12 @@ test.describe('a palm on the glass', () => {
     expect(at.title, 'did not reach the bucket elevator step').toMatch(/elevator/i);
     expect(at.want, 'the foot plate is not the piece the manual wants here').toBe('e01');
 
-    const spot = await page.evaluate(() => {
+    /* Read fresh, never cached. Selecting a piece frames it, so the camera has
+       usually moved by the time of the second grab and a remembered coordinate
+       points at whatever has slid into that spot -- which is how this first
+       went red, reaching for the foot plate and getting e03. The test is about
+       the palm, not about screen coordinates holding still. */
+    const where = () => page.evaluate(() => {
       const m = window.__mew, T = window.THREE;
       const r = document.querySelector('canvas').getBoundingClientRect();
       const c = new T.Box3().setFromObject(m.TABLE.clones[m.strictNext()]).getCenter(new T.Vector3());
@@ -2130,6 +2239,7 @@ test.describe('a palm on the glass', () => {
       return { x: Math.round(r.left + (p.x * 0.5 + 0.5) * r.width), y: Math.round(r.top + (-p.y * 0.5 + 0.5) * r.height),
                palmX: Math.round(r.left + r.width * 0.72), palmY: Math.round(r.top + r.height * 0.82) };
     });
+    let spot = await where();
 
     const cdp = await page.context().newCDPSession(page);
     const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts });
@@ -2146,6 +2256,17 @@ test.describe('a palm on the glass', () => {
     expect(clean, 'the pencil could not pick the foot plate up even on its own').toBe('e01');
 
     await page.evaluate(() => { const m = window.__mew; m.BS.pick = null; m.BS.drag = null; });
+    /* Let the piece settle back onto the table and the framing from that first
+       grab finish, then look again. Both matter: a released piece glides home,
+       and its copy on the table is hidden while it is in the air, so reading
+       the spot too early aims at a piece that is not there yet. */
+    await page.waitForFunction(() => {
+      const m = window.__mew, id = m.strictNext();
+      const c = id && m.TABLE.clones[id];
+      return !!(c && c.visible && m.RT[id].state !== 'drag' && !m.BS.drag);
+    }, null, { timeout: 15000 });
+    await advance(page, 1.2);
+    spot = await where();
     const before = await page.evaluate(() => ({ theta: window.__mew.view.theta, target: window.__mew.view.target.toArray() }));
 
     // now the heel of her hand lands first, as it does when you hold a pencil
