@@ -142,6 +142,44 @@ saturates the cores, and two Chromiums doing it at once turn every timing
 measurement in this file into a guess. Three machines each running one test at a
 time is not the same thing as one machine running three.
 
+### Why CI pins the runner instead of taking the latest
+
+`runs-on: ubuntu-24.04`, not `ubuntu-latest`, from 11 October 2026.
+
+GitHub moves `ubuntu-latest` to Ubuntu 26.04 **gradually, from 19 October to
+19 November 2026** ([runner-images#14748][ri]). Gradually is the problem: for a
+month, runs land on one image or the other at random, so the same commit can be
+green once and red the next time. An intermittent red that depends on which
+machine answered is the least useful signal a suite can give, and this one is
+built on the premise that software rendering makes results identical everywhere.
+
+It would be a hard red, not a flake. Checked against the pinned package rather
+than assumed:
+
+- `hostPlatform.js` draws its line at `major < 26`, so Ubuntu 26.04 resolves to
+  `"ubuntu26.04-x64"` with `isOfficiallySupportedPlatform: false`.
+- `nativeDeps.js` stops at `ubuntu24.04`. With no entry, `--with-deps` prints
+  *"Cannot install dependencies for ubuntu26.04-x64 with Playwright 1.56.0!"*
+  and installs **nothing**, exiting 0 — a step that looks like it worked.
+- The Chromium download table has no row for it either, and its `<unknown>`
+  fallback is `undefined`, so `_downloadURLs` returns `[]`. There is no browser
+  to fetch.
+
+**Playwright 1.61.0** is the first release that knows `ubuntu26.04`; this repo
+pins 1.56.0. So unpinning the runner is not a one-line change — it needs a
+Playwright upgrade first, and that brings a new bundled Chromium, which moves
+every pixel and millisecond figure in this file. The contrast sweep, the ghost
+outline, the draw-call budget and all the timings would need re-measuring
+against the new browser before the numbers here mean anything again.
+
+The order, when someone picks this up: upgrade Playwright, re-baseline the
+measured tests on 24.04, then switch the label to `ubuntu-26.04` and re-measure
+once more. Pinning is a dated decision, not a permanent one — 24.04 is an LTS
+and its explicit label outlives the migration window, which is the breathing
+room, not the answer.
+
+[ri]: https://github.com/actions/runner-images/issues/14748
+
 ### Keeping the CI actions current
 
 Every run was printing a deprecation warning: the four `actions/*` steps were
