@@ -11,7 +11,22 @@ on:
 jobs:
   playwright:
     name: Playwright ${{ matrix.shard }}/3
-    runs-on: ubuntu-latest
+    # Pinned, not latest, and deliberately. GitHub moves `ubuntu-latest` to
+    # 26.04 gradually between 19 Oct and 19 Nov 2026, which means runs land on
+    # one image or the other at random: the same commit green once and red the
+    # next time, which is the worst failure a suite can have.
+    #
+    # It would be red rather than flaky here. Playwright resolves an unknown
+    # Ubuntu to "ubuntu26.04-x64" (hostPlatform.js draws its line at
+    # `major < 26`), and 1.56 has no entry for it: `--with-deps` prints
+    # "Cannot install dependencies" and installs nothing, and the Chromium
+    # download table has no row for it either, so there is no browser to fetch.
+    #
+    # Unpinning needs Playwright >= 1.61, the first release that knows
+    # ubuntu26.04 -- and that brings a new bundled Chromium, so every pixel and
+    # millisecond figure in the README has to be re-measured first. Until then
+    # this is what keeps "results are the same on every machine" true.
+    runs-on: ubuntu-24.04
     # A shard is a third of the suite, so about twelve minutes plus three to
     # install. Thirty is headroom, not a target; if a shard ever gets near it,
     # the answer is another shard, not a bigger number.
@@ -79,7 +94,10 @@ jobs:
     # Runs even when a shard failed — a red run is when you most want the
     # report.
     if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
+    # Pinned to match the shards. This one only merges blob reports and needs
+    # no browser, so it would survive 26.04 — but a report job on a different
+    # image from the tests it is reporting on is a confusion waiting to happen.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
 
     steps:
